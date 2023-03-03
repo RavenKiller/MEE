@@ -1,0 +1,25 @@
+attrs>=19.1.0
+dtw
+fastdtw
+gdown
+gym>=0.17.3
+jsonlines
+lmdb
+msgpack_numpy
+networkx
+numpy>=1.16.1
+pre-commit
+tqdm>=4.0.0
+yacs>=0.1.5
+Opencv-python>=3.3.0
+git+https://github.com/openai/CLIP.git
+seaborn
+--extra-index-url https://download.pytorch.org/whl/cu116
+torch==1.13.1+cu116
+--extra-index-url https://download.pytorch.org/whl/cu116
+torchvision==0.14.1+cu116
+# use conda to install scipy=1.6.1
+importlib-metadata
+tensorflow==2.9.0
+transformers
+torcheval

@@ -1,0 +1,49 @@
+BASE_TASK_CONFIG_PATH: habitat_extensions/config/vlnce_t.yaml
+TRAINER_NAME: dagger_evoenc # dagger, or recollect_trainer
+DEBUG: False
+SIMULATOR_GPU_ID: 0 # new version
+TORCH_GPU_ID: 0
+NUM_ENVIRONMENTS: 6
+TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_da
+CHECKPOINT_FOLDER: data/checkpoints/evoenc_da
+EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_da
+RESULTS_DIR: data/checkpoints/evoenc_da/evals
+
+EVAL:
+  USE_CKPT_CONFIG: False
+  SPLIT: val_unseen
+  EPISODE_COUNT: -1
+
+IL:
+  epochs: 4
+  batch_size: 2
+  lr: 1.76e-4
+  use_iw: True
+  RECOLLECT_TRAINER:
+    gt_file:
+      data/datasets/R2R_VLNCE_NRSub_T/{split}/{split}_gt.json.gz
+
+  DAGGER:
+    iterations: 10
+    update_size: 5000
+    p: 0.75
+    preload_lmdb_features: False
+    lmdb_features_dir: data/trajectories_dirs/evoenc_da/trajectories.lmdb
+
+MODEL:
+  policy_name: EEPolicy
+
+  PROGRESS_MONITOR:
+    use: True
+    alpha: 1.0
+  DEPTH_ENCODER:
+    output_size: 2048 
+    single_size: 128
+    trainable: False
+  EVOENC:
+    rgb_len: 50
+    layers: 4
+    inner_dropout: 0.1
+  CLIP:
+    downsample_size: 7
+    trainable: False
