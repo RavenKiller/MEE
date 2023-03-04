@@ -27,7 +27,7 @@ git clone https://github.com/RavenKiller/EvoEnc.git
 cd EvoEnc
 pip install -r requirements.txt
 ```
-5. Download Matterport3D sences:
+5. Download Matterport3D scenes:
    + Get the official `download_mp.py` from [Matterport3D project webpage](https://niessner.github.io/Matterport/)
    + Download scene data for Habitat
     ```bash
@@ -35,44 +35,40 @@ pip install -r requirements.txt
     python download_mp.py --task habitat -o data/scene_datasets/mp3d/
     ```
    + Extract such that it has the form `data/scene_datasets/mp3d/{scene}/{scene}.glb`. There should be 90 scenes.
-6. Download preprocessed episodes from [here](https://www.jianguoyun.com/p/DRKVWtQQhY--CRiE0voEIAA). Extract it into `data/datasets/`.
+6. Download pre-processed episodes from [here](https://www.jianguoyun.com/p/DRKVWtQQhY--CRiE0voEIAA). Extract it into `data/datasets/`.
 7. Download the depth encoder from [here](https://www.jianguoyun.com/p/DREiSbAQhY--CRjv0foEIAA). Extract the model to `data/ddppo-models/gibson-4plus-resnet50.pth`.
 
 ## Evo Dataset
-In this work, we proposed an evolutionary pre-training strategy and develop the corresponding datasets. The data collecting scripts are stored in `scripts/`, with filenames like `evo_data_stage0.ipynb`. Stage0 here corresponds to stage 1 in the paper.
+We proposed an evolutionary pre-training strategy in this work and developed the corresponding datasets. The data collecting scripts are stored in `scripts/` with filenames like `evo_data_stage0.ipynb`. Stage0 here corresponds to stage 1 in the paper.
 
-Our pre-processed version contains totally 4.8M samples of all modalities. They can be download from [BaiduNetdisk](https://pan.baidu.com/s/1qvbu_z0M_2bWecNGVWKvFQ) with extraction code `mg27`. All data is organized by HDF5. The total size after decompression is around GB. Below are file list:
+Our pre-processed version contains a total of 4.8M samples of all modalities. They can be downloaded from [BaiduNetdisk](https://pan.baidu.com/s/1qvbu_z0M_2bWecNGVWKvFQ) with extraction code `mg27`. All data is organized in HDF5 format. The total size after decompression is around 720 GB. Below is the file list:
 + stage0.zip
     + rgb.mat: contains RGB data with shape (395439, 224, 224, 3)
     + depth.mat: contains depth data with shape (417900, 256, 256, 1)
-    + inst.mat: contains instruction data with shape (400250, 77), zero-padded and tokenized
+    + inst.mat: contains instruction data with shape (400250, 77), zero-padded, and tokenized
     + sub_inst.mat: contains sub-instruction data with shape (410357, 12, 77)
 + stage1.zip
-    + rgb_depth_large.mat: contains aligned RGB and depth data, totally 230766 pairs
-    + inst_sub_large.mat: contains aligned instruction and sub-instruction data, totally 157877 pairs
+    + rgb_depth_large.mat: contains aligned RGB and depth data, a total of 230766 pairs
+    + inst_sub_large.mat: contains aligned instruction and sub-instruction data, a total of 157877 pairs
     + rgb_depth.mat: contains a small debug version
     + inst_sub.mat: contains a small debug version
 + stage2.zip
-    + data.mat: contains aligned (RGB, depth, instruction, sub-instruction), totally 601038 tuples 
+    + data.mat: contains aligned (RGB, depth, instruction, sub-instruction), a total of 601038 tuples 
 
-The data source includes  
-+ stage 1: COCO [29], VisualGenome
-[30], RGBD1K [31], SceneNet Depth [32] and BookCorpus
-[33], 
-+ stage 2:  NYUv2 [35],
-DIODE [36], TUM RGB-D [37], Bonn RGB-D Dynamic
-[38], SceneNet RGB-D [32], Touchdown [20], map2seq [39],
-CHALET [40], Talk the Walk [41], and ALFRED [42]
-+ stage 3:  VLN-CE [2] and EnvDrop [43]
+The data source includes:
++ stage 1: COCO, VisualGenome, RGBD1K, SceneNet Depth, and BookCorpus.
++ stage 2: NYUv2, DIODE, TUM RGB-D, Bonn RGB-D Dynamic, SceneNet RGB-D, Touchdown, map2seq, CHALET, Talk the Walk, and ALFRED.
++ stage 3: [VLN-CE](https://github.com/jacobkrantz/VLN-CE) and [EnvDrop](https://github.com/airsplay/R2R-EnvDrop).
+All datasets in stages 1 and 2 are publicly available and can be searched in [paperswithcode](https://paperswithcode.com/datasets). We refer to them in our paper and omit their links here.
 
 ## Train, evaluate and test
-`run.py` is the program entrance. You can run it like:
+`run.py` is the program entrance. You can run it like this:
 ```bash
 python run.py \
   --exp-config {config} \
   --run-type {type}
 ```
-`{config}` should be replaced by a config file path; `{type}` should be `train`, `eval` or `inference`, meaning train models, evaluate models and test models.
+`{config}` should be replaced by a config file path; `{type}` should be `train`, `eval`, or `inference`, meaning train, evaluate, and test models.
 
 Our config files are stored in `evoenc/config/`:
 | File | Meaning |
@@ -85,9 +81,9 @@ Our config files are stored in `evoenc/config/`:
 | `evoenc_p2.yaml` | Evolutionary pre-training stage 3 |
 | `evoenc_p{x}_tune.yaml` | Fine-tune model with  vanilla DAgger |
 
-Several paths (like pre-training data folder, checkpoint paths) are configured by above YAML files or the `evoenc/config/default.py`. Remenber to change them as needed.
+Several paths (like pre-training data folder and checkpoint paths) are configured by the above YAML files or the `evoenc/config/default.py`. Remember to change them as needed.
 
 ## Pre-trained weights
 \[[stage 1](https://www.jianguoyun.com/p/DQDYoIIQhY--CRiy0_oEIAA)\] \[[stage 2](https://www.jianguoyun.com/p/DYfUQDQQhY--CRi80_oEIAA)\] \[[stage 2](https://www.jianguoyun.com/p/DfU_ZLgQhY--CRjB0_oEIAA)\] <br/> Access code: `evoenc`
 
-We release pre-trained Enc weights after Evo. To reduce the storage cost, we exclude frozon pre-extractor in these weights. Refer to the code `evoenc/models/evoenc_policy.py` to load pre-trained weights.
+We release pre-trained Enc weights after Evo. We exclude the frozen pre-extractor in these weights to reduce the storage cost. Refer to the code `evoenc/models/evoenc_policy.py` to load pre-trained weights.
