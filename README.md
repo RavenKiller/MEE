@@ -59,6 +59,7 @@ The data source includes:
 + stage 1: COCO, VisualGenome, RGBD1K, SceneNet Depth, and BookCorpus.
 + stage 2: NYUv2, DIODE, TUM RGB-D, Bonn RGB-D Dynamic, SceneNet RGB-D, Touchdown, map2seq, CHALET, Talk the Walk, and ALFRED.
 + stage 3: [VLN-CE](https://github.com/jacobkrantz/VLN-CE) and [EnvDrop](https://github.com/airsplay/R2R-EnvDrop).
+
 All datasets in stages 1 and 2 are publicly available and can be searched in [paperswithcode](https://paperswithcode.com/datasets). We refer to them in our paper and omit their links here.
 
 ## Train, evaluate and test
@@ -75,10 +76,8 @@ Our config files are stored in `evoenc/config/`:
 | ---- | ---- |
 | `evoenc.yaml` | Train model with behavior cloning |
 | `evoenc_da.yaml` | Train model with vanilla DAgger |
-| `evoenc_aug.yaml` | Collect trajectories by EnvDrop augmentation |
-| `evoenc_p0.yaml` | Evolutionary pre-training stage 1 |
-| `evoenc_p1.yaml` | Evolutionary pre-training stage 2 |
-| `evoenc_p2.yaml` | Evolutionary pre-training stage 3 |
+| `evoenc_aug.yaml` | Collect trajectories in EnvDrop |
+| `evoenc_p{x}.yaml` | Evolutionary pre-training stage {x}+1 |
 | `evoenc_p{x}_tune.yaml` | Fine-tune model with  vanilla DAgger |
 
 Several paths (like pre-training data folder and checkpoint paths) are configured by the above YAML files or the `evoenc/config/default.py`. Remember to change them as needed.
