@@ -323,7 +323,7 @@ _C.MODEL.DEPTH_ENCODER.single_size = 128
 _C.MODEL.DEPTH_ENCODER.backbone = "resnet50"
 # path to DDPPO resnet weights
 _C.MODEL.DEPTH_ENCODER.ddppo_checkpoint = (
-    "data/ddppo-models/gibson-4plus-resnet50-my.pth"
+    "data/ddppo-models/gibson-4plus-resnet50.pth"
 )
 _C.MODEL.DEPTH_ENCODER.trainable = False
 _C.MODEL.DEPTH_ENCODER.final_relu = False
