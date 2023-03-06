@@ -46,7 +46,7 @@ Our pre-processed version contains a total of 4.8M samples of all modalities. Th
     + rgb.mat: contains RGB data with shape (395439, 224, 224, 3)
     + depth.mat: contains depth data with shape (417900, 256, 256, 1)
     + inst.mat: contains instruction data with shape (400250, 77), zero-padded, and tokenized
-    + sub_inst.mat: contains sub-instruction data with shape (410357, 12, 77)
+    + sub.mat: contains sub-instruction data with shape (410357, 12, 77)
 + stage1.zip
     + rgb_depth_large.mat: contains aligned RGB and depth data, a total of 230766 pairs
     + inst_sub_large.mat: contains aligned instruction and sub-instruction data, a total of 157877 pairs
