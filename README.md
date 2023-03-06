@@ -56,11 +56,9 @@ Our pre-processed version contains a total of 4.8M samples of all modalities. Th
     + data.mat: contains aligned (RGB, depth, instruction, sub-instruction), a total of 601038 tuples 
 
 The data source includes:
-+ stage 1: COCO, VisualGenome, RGBD1K, SceneNet Depth, and BookCorpus.
-+ stage 2: NYUv2, DIODE, TUM RGB-D, Bonn RGB-D Dynamic, SceneNet RGB-D, Touchdown, map2seq, CHALET, Talk the Walk, and ALFRED.
++ stage 1: [COCO](https://cocodataset.org/#home), [VisualGenome](https://visualgenome.org/), [RGBD1K](https://github.com/xuefeng-zhu5/RGBD1K), [SceneNet Depth](https://robotvault.bitbucket.io/scenenet-rgbd.html), and [BookCorpus](https://huggingface.co/datasets/bookcorpus).
++ stage 2: [NYUv2](http://horatio.cs.nyu.edu/mit/silberman/nyu_depth_v2/nyu_depth_v2_labeled.mat), [DIODE](https://diode-dataset.org/), [TUM RGB-D](https://vision.in.tum.de/data/datasets/rgbd-dataset/download), Bonn [RGB-D Dynamic](http://www.ipb.uni-bonn.de/data/rgbd-dynamic-dataset/), [SceneNet RGB-D](https://robotvault.bitbucket.io/scenenet-rgbd.html),[Touchdown](https://github.com/lil-lab/touchdown), [map2seq](https://map2seq.schumann.pub/dataset/download/), [CHALET](https://github.com/lil-lab/chalet), [Talk the Walk](https://github.com/facebookresearch/talkthewalk), and [ALFRED](https://github.com/askforalfred/alfred).
 + stage 3: [VLN-CE](https://github.com/jacobkrantz/VLN-CE) and [EnvDrop](https://github.com/airsplay/R2R-EnvDrop).
-
-All datasets in stages 1 and 2 are publicly available and can be searched in [paperswithcode](https://paperswithcode.com/datasets). We refer to them in our paper and omit their links here.
 
 ## Train, evaluate and test
 `run.py` is the program entrance. You can run it like this:
