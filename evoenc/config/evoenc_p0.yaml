@@ -15,6 +15,7 @@ PRETRAIN:
   STAGE0:
     lr: 1.0e-5
     batch_size: 64
+    epochs: 10
     loss_weights: [1.0, 1.0]
 
 MODEL:

@@ -326,7 +326,7 @@ _C.MODEL.DEPTH_ENCODER.ddppo_checkpoint = (
     "data/ddppo-models/gibson-4plus-resnet50.pth"
 )
 _C.MODEL.DEPTH_ENCODER.trainable = False
-_C.MODEL.DEPTH_ENCODER.final_relu = False
+_C.MODEL.DEPTH_ENCODER.final_relu = True
 
 _C.MODEL.CLIP = CN()
 _C.MODEL.CLIP.model_name = "ViT-B/32"

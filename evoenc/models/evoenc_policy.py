@@ -32,7 +32,7 @@ DEP = 1
 INS = 2
 SUB = 3
 EPS = 1e-12
-COEF_REC_INST = 3.0 # scale the reconstruction loss
+COEF_REC_INST = 1.0 # scale the reconstruction loss
 COEF_REC_SUB = 1.0 # scale the reconstruction loss
 
 def positionalencoding1d(length, d_model):
@@ -145,7 +145,7 @@ class EENet(Net):
         self.storage = None
 
         self.rgb_fc = nn.Sequential(
-            # nn.LayerNorm(model_config.CLIP.vit_size),
+            nn.LayerNorm(model_config.CLIP.vit_size),
             nn.Dropout(p=self.model_config.EVOENC.dropout),
             nn.Linear(self.model_config.CLIP.vit_size, self._hidden_size),
             nn.ReLU(inplace=False)
@@ -156,13 +156,13 @@ class EENet(Net):
             nn.ReLU(inplace=False)
         )
         self.inst_fc = nn.Sequential(
-            # nn.LayerNorm(model_config.CLIP.output_size),
+            nn.LayerNorm(model_config.CLIP.output_size),
             nn.Dropout(p=self.model_config.EVOENC.dropout),
             nn.Linear(self.model_config.CLIP.output_size, self._hidden_size),
             nn.ReLU(inplace=False)
         )
         self.sub_fc = nn.Sequential(
-            # nn.LayerNorm(model_config.CLIP.output_size),
+            nn.LayerNorm(model_config.CLIP.output_size),
             nn.Dropout(p=self.model_config.EVOENC.dropout),
             nn.Linear(self.model_config.CLIP.output_size, self._hidden_size),
             nn.ReLU(inplace=False)
