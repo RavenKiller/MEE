@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import seaborn as sns
 import random
+
 sns.set(style="whitegrid")
 import time
 
@@ -62,9 +63,7 @@ for model_name in model_names:
     for result_file in result_files:
         print(result_file)
         if val_set in result_file and "json" in result_file:
-            path = os.path.join(
-                checkpoint_path, model_name, eval_folder, result_file
-            )
+            path = os.path.join(checkpoint_path, model_name, eval_folder, result_file)
             with open(path, "r") as f:
                 data = json.loads(f.read())
             idx = int(result_file.split("_")[2])
@@ -93,27 +92,29 @@ with open(os.path.join(checkpoint_path, summary_file), "r") as f:
 metrics = ["success", "spl"]
 
 fig, ax = plt.subplots(len(metrics), 1, figsize=(12.8, 6.4 * len(metrics)))
-clist = ['aqua',
- 'black',
- 'blue',
- 'brown',
- 'darkcyan',
- 'darkgreen',
- 'darkmagenta',
- 'darkorchid',
- 'darkred',
- 'darkslategray',
- 'darkviolet',
- 'deeppink',
- 'fuchsia',
- 'indigo',
- 'lime',
- 'magenta',
- 'maroon',
- 'navy',
- 'orangered']
-markers = ["o", "+", "x", "*", "D","v","^","<",">","s","p","h","X","D"]
-print("%-16s | %10s | %10s | %10s"%("model_prefix","metric","mean","max"))
+clist = [
+    "aqua",
+    "black",
+    "blue",
+    "brown",
+    "darkcyan",
+    "darkgreen",
+    "darkmagenta",
+    "darkorchid",
+    "darkred",
+    "darkslategray",
+    "darkviolet",
+    "deeppink",
+    "fuchsia",
+    "indigo",
+    "lime",
+    "magenta",
+    "maroon",
+    "navy",
+    "orangered",
+]
+markers = ["o", "+", "x", "*", "D", "v", "^", "<", ">", "s", "p", "h", "X", "D"]
+print("%-16s | %10s | %10s | %10s" % ("model_prefix", "metric", "mean", "max"))
 for i, metric in enumerate(metrics):
     # fig, ax = plt.subplots()
     for j, (k, v) in enumerate(summary.items()):
@@ -121,11 +122,16 @@ for i, metric in enumerate(metrics):
         now = dict(now)
         x = list(now.keys())
         y = list(now.values())
-        ax[i].plot(x, y, label=k,markersize=10, marker=markers[j])
+        ax[i].plot(x, y, label=k, markersize=10, marker=markers[j])
         val = np.array(list(y))
-        print("%-16s | %10s | %10.4f | %10.4f"%(k.replace(model_prefix,""),metric,np.mean(val),np.max(val)))
+        print(
+            "%-16s | %10s | %10.4f | %10.4f"
+            % (k.replace(model_prefix, ""), metric, np.mean(val), np.max(val))
+        )
     # .legend()
-    ax[i].legend(loc=2, bbox_to_anchor=(1.05,1.0),borderaxespad = 0.,fontsize=14)     ##设置ax4中legend的位置，将其放在图外
+    ax[i].legend(
+        loc=2, bbox_to_anchor=(1.05, 1.0), borderaxespad=0.0, fontsize=14
+    )  ##设置ax4中legend的位置，将其放在图外
     ax[i].set_title(val_set + "_" + metric, fontsize=20)
     ax[i].tick_params(labelsize=14)
 fig.tight_layout()

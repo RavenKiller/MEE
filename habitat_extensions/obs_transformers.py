@@ -49,8 +49,7 @@ class CenterCropperPerSensor(ObservationTransformer):
         for key in observation_space.spaces:
             if (
                 key in self.sensor_crops
-                and observation_space.spaces[key].shape[-3:-1]
-                != self.sensor_crops[key]
+                and observation_space.spaces[key].shape[-3:-1] != self.sensor_crops[key]
             ):
                 h, w = get_image_height_width(
                     observation_space.spaces[key], channels_last=True
@@ -90,9 +89,7 @@ class CenterCropperPerSensor(ObservationTransformer):
 class ObsStack(ObservationTransformer):
     """Stack multiple sensors into a single sensor observation."""
 
-    def __init__(
-        self, sensor_rewrites: List[Tuple[str, Sequence[str]]]
-    ) -> None:
+    def __init__(self, sensor_rewrites: List[Tuple[str, Sequence[str]]]) -> None:
         """Args:
         sensor_rewrites: a tuple of rewrites where a rewrite is a list of
         sensor names to be combined into one sensor.
@@ -131,9 +128,7 @@ class ObsStack(ObservationTransformer):
     @torch.no_grad()
     def forward(self, observations: Observations) -> Observations:
         for new_obs_keys, old_obs_keys in self.rewrite_dict.items():
-            new_obs = torch.stack(
-                [observations[k] for k in old_obs_keys], axis=1
-            )
+            new_obs = torch.stack([observations[k] for k in old_obs_keys], axis=1)
             for k in old_obs_keys:
                 del observations[k]
 

@@ -80,10 +80,7 @@ class VLNCEDatasetV1(Dataset):
                 if episode.episode_id not in ep_ids_to_purge
             ]
 
-    def from_json(
-        self, json_str: str, scenes_dir: Optional[str] = None
-    ) -> None:
-
+    def from_json(self, json_str: str, scenes_dir: Optional[str] = None) -> None:
         deserialized = json.loads(json_str)
         self.instruction_vocab = VocabDict(
             word_list=deserialized["instruction_vocab"]["word_list"]
@@ -111,9 +108,7 @@ class VLNCEDatasetV1(Dataset):
         """Return a sorted list of scenes"""
         assert cls.check_config_paths_exist(config)
         dataset = cls(config)
-        return sorted(
-            {cls.scene_from_scene_path(e.scene_id) for e in dataset.episodes}
-        )
+        return sorted({cls.scene_from_scene_path(e.scene_id) for e in dataset.episodes})
 
     @staticmethod
     def check_config_paths_exist(config: Config) -> bool:
@@ -169,10 +164,7 @@ class RxRVLNCEDatasetV1(Dataset):
                 if episode.episode_id not in ep_ids_to_purge
             ]
 
-    def from_json(
-        self, json_str: str, scenes_dir: Optional[str] = None
-    ) -> None:
-
+    def from_json(self, json_str: str, scenes_dir: Optional[str] = None) -> None:
         deserialized = json.loads(json_str)
 
         for episode in deserialized["episodes"]:
@@ -186,9 +178,7 @@ class RxRVLNCEDatasetV1(Dataset):
 
                 episode.scene_id = os.path.join(scenes_dir, episode.scene_id)
 
-            episode.instruction = ExtendedInstructionData(
-                **episode.instruction
-            )
+            episode.instruction = ExtendedInstructionData(**episode.instruction)
             episode.instruction.split = self.config.SPLIT
             if episode.goals is not None:
                 for g_index, goal in enumerate(episode.goals):
@@ -200,9 +190,7 @@ class RxRVLNCEDatasetV1(Dataset):
         """Return a sorted list of scenes"""
         assert cls.check_config_paths_exist(config)
         dataset = cls(config)
-        return sorted(
-            {cls.scene_from_scene_path(e.scene_id) for e in dataset.episodes}
-        )
+        return sorted({cls.scene_from_scene_path(e.scene_id) for e in dataset.episodes})
 
     @classmethod
     def extract_roles_from_config(cls, config: Config) -> List[str]:
@@ -214,9 +202,7 @@ class RxRVLNCEDatasetV1(Dataset):
     @classmethod
     def check_config_paths_exist(cls, config: Config) -> bool:
         return all(
-            os.path.exists(
-                config.DATA_PATH.format(split=config.SPLIT, role=role)
-            )
+            os.path.exists(config.DATA_PATH.format(split=config.SPLIT, role=role))
             for role in cls.extract_roles_from_config(config)
         ) and os.path.exists(config.SCENES_DIR)
 

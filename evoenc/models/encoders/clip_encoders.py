@@ -25,12 +25,8 @@ class CLIPEncoder(nn.Module):
         for param in self.model.parameters():
             param.requires_grad_(trainable)
         self.normalize_visual_inputs = True
-        self.normalize_mu = torch.FloatTensor(
-            [0.48145466, 0.4578275, 0.40821073]
-        )
-        self.normalize_sigma = torch.FloatTensor(
-            [0.26862954, 0.26130258, 0.27577711]
-        )
+        self.normalize_mu = torch.FloatTensor([0.48145466, 0.4578275, 0.40821073])
+        self.normalize_sigma = torch.FloatTensor([0.26862954, 0.26130258, 0.27577711])
         self.rgb_embedding_seq = None
         # self.ln_rgb = nn.LayerNorm(768)
         # self.ln_text = nn.LayerNorm(512)
@@ -39,9 +35,9 @@ class CLIPEncoder(nn.Module):
             self.model.visual.transformer.register_forward_hook(self._vit_hook)
             self.model.transformer.register_forward_hook(self._t_hook)
         else:
-            self.model.visual.transformer.resblocks[
-                rgb_level
-            ].register_forward_hook(self._vit_hook)
+            self.model.visual.transformer.resblocks[rgb_level].register_forward_hook(
+                self._vit_hook
+            )
             self.model.transformer.resblocks[rgb_level].register_forward_hook(
                 self._t_hook
             )
@@ -68,6 +64,7 @@ class CLIPEncoder(nn.Module):
 
     def _t_hook(self, m, i, o):
         self.sub_embedding_seq = o.float()
+
     def encode_sub_instruction(self, observations: Observations) -> Tensor:
         if "sub_features" in observations:
             sub_embedding = observations["sub_features"]
@@ -76,26 +73,29 @@ class CLIPEncoder(nn.Module):
                 sub_instruction = observations["sub_instruction"].int()
                 shape = sub_instruction.shape
                 sub_instruction = sub_instruction.reshape((-1, shape[-1]))
-                idx = (sub_instruction>0).any(dim=-1) # N*L, index of useful position
-                attention_mask = sub_instruction>0
-                sub_embedding = torch.zeros((shape[0]*shape[1], 512), dtype=torch.float).to(
-                    sub_instruction.device
-                )
+                idx = (sub_instruction > 0).any(dim=-1)  # N*L, index of useful position
+                attention_mask = sub_instruction > 0
+                sub_embedding = torch.zeros(
+                    (shape[0] * shape[1], 512), dtype=torch.float
+                ).to(sub_instruction.device)
                 self.model.encode_text(sub_instruction[idx]).float()
                 # LND -> NLD
-                sub_embedding_seq = self.sub_embedding_seq.float().permute(
-                    1, 0, 2
-                )
+                sub_embedding_seq = self.sub_embedding_seq.float().permute(1, 0, 2)
                 if self.use_mean:
                     am = attention_mask[idx]
-                    lengths = am.sum(dim=1).unsqueeze(1) # Word numbers in useful subs
-                    sub_embedding_seq = (sub_embedding_seq*am.unsqueeze(2)).sum(dim=1)/lengths
+                    lengths = am.sum(dim=1).unsqueeze(1)  # Word numbers in useful subs
+                    sub_embedding_seq = (sub_embedding_seq * am.unsqueeze(2)).sum(
+                        dim=1
+                    ) / lengths
                 else:
-                    sub_embedding_seq = sub_embedding_seq[:,0,:]
+                    sub_embedding_seq = sub_embedding_seq[:, 0, :]
                 sub_embedding[idx] = sub_embedding_seq
-                sub_embedding = sub_embedding.reshape((shape[0], shape[1], sub_embedding.shape[-1]))
-                sub_mask = (sub_embedding!=0).any(dim=2)
+                sub_embedding = sub_embedding.reshape(
+                    (shape[0], shape[1], sub_embedding.shape[-1])
+                )
+                sub_mask = (sub_embedding != 0).any(dim=2)
         return sub_embedding
+
     def encode_text_old(self, observations: Observations) -> Tensor:
         if "sub_features" in observations:
             sub_embedding = observations["sub_features"]
@@ -109,23 +109,20 @@ class CLIPEncoder(nn.Module):
                 sub_instruction.device
             )
             for i in range(bs):
-                pad = torch.zeros(
-                    (1,), dtype=torch.int, device=sub_instruction.device
-                )
+                pad = torch.zeros((1,), dtype=torch.int, device=sub_instruction.device)
                 idx = torch.argmin(
                     torch.cat((sub_instruction[i, :, 0], pad))
                 )  # effective sub instructions num
                 _ = self.model.encode_text(sub_instruction[i][0:idx]).float()
                 # LND -> NLD
-                sub_embedding_seq = self.sub_embedding_seq.float().permute(
-                    1, 0, 2
-                )
+                sub_embedding_seq = self.sub_embedding_seq.float().permute(1, 0, 2)
                 # sub_embedding_seq = self.ln_text(sub_embedding_seq)
                 sub_embedding[i][0:idx] = sub_embedding_seq[
                     torch.arange(sub_embedding_seq.shape[0]),
                     sub_instruction[i][0:idx].argmax(dim=-1),
                 ]
         return sub_embedding
+
     def encode_raw(self, observations: Observations) -> Tensor:
         if "inst_features" in observations:
             raw_embedding_seq = observations["inst_features"]
@@ -133,32 +130,25 @@ class CLIPEncoder(nn.Module):
             instruction = observations["instruction"].int()
             _ = self.model.encode_text(instruction).float()
             # LND -> NLD
-            raw_embedding_seq = self.sub_embedding_seq.float().permute(
-                1, 0, 2
-            )
-            raw_embedding_seq[instruction==0] = 0
+            raw_embedding_seq = self.sub_embedding_seq.float().permute(1, 0, 2)
+            raw_embedding_seq[instruction == 0] = 0
         return raw_embedding_seq
 
     def encode_image(
         self, observations: Observations, return_seq: bool = True
     ) -> Tensor:
-        if (
-            "rgb_features" in observations
-            and "rgb_seq_features" in observations
-        ):
+        if "rgb_features" in observations and "rgb_seq_features" in observations:
             rgb_embedding = observations["rgb_features"]
             rgb_embedding_seq = observations["rgb_seq_features"]
         else:
             rgb_observations = observations["rgb"]
-            _ = self.model.encode_image(
-                self._normalize(rgb_observations)
-            ).float()
+            _ = self.model.encode_image(self._normalize(rgb_observations)).float()
             s = self.rgb_embedding_seq.shape
             # LND -> NLD
             rgb_embedding_seq = self.rgb_embedding_seq.float().permute(1, 0, 2)
             # rgb_embedding_seq = self.ln_rgb(rgb_embedding_seq)
             rgb_embedding = rgb_embedding_seq[:, 0, :]
-            if self.downsample_size==7:
+            if self.downsample_size == 7:
                 rgb_embedding_seq = rgb_embedding_seq[:, 1:, :].permute(0, 2, 1)
             else:
                 # NLD -> NDL -> NDHW
@@ -176,8 +166,16 @@ class CLIPEncoder(nn.Module):
         else:
             return rgb_embedding
 
+
 class InstructionEncoder(nn.Module):
-    def __init__(self, model_name="distilbert-base-uncased", trainable=False, use_layer=6, tune_layer=[], use_cls=False):
+    def __init__(
+        self,
+        model_name="distilbert-base-uncased",
+        trainable=False,
+        use_layer=6,
+        tune_layer=[],
+        use_cls=False,
+    ):
         super(InstructionEncoder, self).__init__()
         self.model_name = model_name
         self.bert_tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -191,59 +189,83 @@ class InstructionEncoder(nn.Module):
         for tune in tune_layer:
             for param in self.bert_model.transformer.layer[tune].parameters():
                 param.requires_grad_(True)
-        if use_layer!=6:
-            self.bert_model.transformer.layer[use_layer].register_forward_hook(self._t_hook)
+        if use_layer != 6:
+            self.bert_model.transformer.layer[use_layer].register_forward_hook(
+                self._t_hook
+            )
         self.feature = None
+
     def _t_hook(self, m, i, o):
         self.feature = o
+
     def encode_instruction(self, observations):
         if "inst_features" in observations:
             inst_embedding = observations["inst_features"]
         else:
             # with torch.no_grad():
             instruction = observations["instruction"].long()
-            attention_mask = instruction>0
+            attention_mask = instruction > 0
             if "distilbert" in self.model_name:
-                inputs = {"input_ids":instruction, "attention_mask":attention_mask}
+                inputs = {"input_ids": instruction, "attention_mask": attention_mask}
             else:
                 token_type_ids = torch.zeros_like(instruction, dtype=torch.int)
-                inputs = {"input_ids":instruction, "token_type_ids":token_type_ids,"attention_mask":attention_mask}
+                inputs = {
+                    "input_ids": instruction,
+                    "token_type_ids": token_type_ids,
+                    "attention_mask": attention_mask,
+                }
             res = self.bert_model(**inputs)
-            if self.use_layer==6:
+            if self.use_layer == 6:
                 inst_embedding = res["last_hidden_state"]
             else:
                 inst_embedding = self.feature[0]
             attention_mask = attention_mask.bool().logical_not()
             inst_embedding[attention_mask] = 0
             if not self.use_cls:
-                inst_embedding = inst_embedding[:,1:,:]
+                inst_embedding = inst_embedding[:, 1:, :]
         return inst_embedding
+
     def encode_sub_instruction(self, observations):
         if "sub_features" in observations:
             sub_embedding = observations["sub_features"]
-            sub_mask = (sub_embedding!=0).any(dim=2)
+            sub_mask = (sub_embedding != 0).any(dim=2)
         else:
             with torch.no_grad():
                 sub_instruction = observations["sub_instruction"].long()
                 shape = sub_instruction.shape
                 sub_instruction = sub_instruction.reshape((-1, shape[-1]))
-                idx = (sub_instruction>0).any(dim=-1)
+                idx = (sub_instruction > 0).any(dim=-1)
 
                 token_type_ids = torch.zeros_like(sub_instruction, dtype=torch.int)
-                attention_mask = sub_instruction>0
+                attention_mask = sub_instruction > 0
                 if "distilbert" in self.model_name:
-                    inputs = {"input_ids":sub_instruction[idx], "attention_mask":attention_mask[idx]}
+                    inputs = {
+                        "input_ids": sub_instruction[idx],
+                        "attention_mask": attention_mask[idx],
+                    }
                 else:
-                    inputs = {"input_ids":sub_instruction[idx], "token_type_ids":token_type_ids[idx],"attention_mask":attention_mask[idx]}
+                    inputs = {
+                        "input_ids": sub_instruction[idx],
+                        "token_type_ids": token_type_ids[idx],
+                        "attention_mask": attention_mask[idx],
+                    }
                 res = self.bert_model(**inputs)
                 am = attention_mask[idx]
                 lengths = am.sum(dim=1).unsqueeze(1)
-                hidden_state = (res["last_hidden_state"]*am.unsqueeze(2)).sum(dim=1)/lengths
-                sub_embedding = torch.zeros((shape[0]*shape[1], hidden_state.shape[-1]), device=sub_instruction.device)
+                hidden_state = (res["last_hidden_state"] * am.unsqueeze(2)).sum(
+                    dim=1
+                ) / lengths
+                sub_embedding = torch.zeros(
+                    (shape[0] * shape[1], hidden_state.shape[-1]),
+                    device=sub_instruction.device,
+                )
                 sub_embedding[idx] = hidden_state
-                sub_embedding = sub_embedding.reshape((shape[0], shape[1], sub_embedding.shape[-1]))
-                sub_mask = (sub_embedding!=0).any(dim=2)
+                sub_embedding = sub_embedding.reshape(
+                    (shape[0], shape[1], sub_embedding.shape[-1])
+                )
+                sub_mask = (sub_embedding != 0).any(dim=2)
         return sub_embedding, sub_mask
+
 
 class VlnResnetDepthEncoder(nn.Module):
     def __init__(
@@ -262,11 +284,7 @@ class VlnResnetDepthEncoder(nn.Module):
 
         self.visual_encoder = ResNetEncoder(
             spaces.Dict(
-                {
-                    "depth": single_frame_box_shape(
-                        observation_space.spaces["depth"]
-                    )
-                }
+                {"depth": single_frame_box_shape(observation_space.spaces["depth"])}
             ),
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes // 2,
@@ -292,6 +310,7 @@ class VlnResnetDepthEncoder(nn.Module):
 
             del ddppo_weights
             self.visual_encoder.load_state_dict(weights_dict, strict=True)
+
     def get_depth_seq_features(self):
         return self.depth_seq_features
 
@@ -303,6 +322,7 @@ class VlnResnetDepthEncoder(nn.Module):
             [BATCH, OUTPUT_SIZE]
         """
         return self.encode_depth(observations)
+
     def encode_depth(self, observations, embeddings=None):
         """
         Args:
@@ -333,6 +353,8 @@ class VlnResnetDepthEncoder(nn.Module):
         depth_seq_embedding = x.flatten(start_dim=2)
         depth_embedding = x.flatten(start_dim=1)
         return depth_embedding, depth_seq_embedding
+
+
 if __name__ == "__main__":
     import random
     import warnings
@@ -365,6 +387,7 @@ if __name__ == "__main__":
     #     warnings.filterwarnings("ignore", category=FutureWarning)
     #     import tensorflow as tf  # noqa: F401
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--exp-config",

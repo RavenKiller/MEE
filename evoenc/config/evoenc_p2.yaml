@@ -16,6 +16,7 @@ PRETRAIN:
   STAGE2:
     lr: 2.0e-5
     batch_size: 64
+    epochs: 10
     loss_weights: [0.34, 0.4, 0.6, 1.0]
     load_from_ckpt: True
     ckpt_to_load: data/checkpoints/evoenc_p1/ckpt.EEPolicy.9.pth

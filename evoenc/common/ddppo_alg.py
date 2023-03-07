@@ -82,14 +82,10 @@ class WDDPPO(DDPPO):
                     + self.distance_entropy_coef * entropy["distance"]
                 ).mean() * self.entropy_coef
 
-                ratio = torch.exp(
-                    action_log_probs - old_action_log_probs_batch
-                )
+                ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
                 surr1 = ratio * adv_targ
                 surr2 = (
-                    torch.clamp(
-                        ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
-                    )
+                    torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
                     * adv_targ
                 )
                 action_loss = -torch.min(surr1, surr2).mean()
@@ -99,12 +95,9 @@ class WDDPPO(DDPPO):
                         values - value_preds_batch
                     ).clamp(-self.clip_param, self.clip_param)
                     value_losses = (values - return_batch).pow(2)
-                    value_losses_clipped = (
-                        value_pred_clipped - return_batch
-                    ).pow(2)
+                    value_losses_clipped = (value_pred_clipped - return_batch).pow(2)
                     value_loss = (
-                        0.5
-                        * torch.max(value_losses, value_losses_clipped).mean()
+                        0.5 * torch.max(value_losses, value_losses_clipped).mean()
                     )
                 else:
                     value_loss = 0.5 * (return_batch - values).pow(2).mean()

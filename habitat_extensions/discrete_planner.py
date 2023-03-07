@@ -52,9 +52,7 @@ class DiscretePathPlanner:
             # generate all possible next forward positions
             # pick the candidate that minimizes distance to goal
             next_position = min(
-                self.generate_candidate_positions(
-                    current_position, current_heading
-                ),
+                self.generate_candidate_positions(current_position, current_heading),
                 key=lambda p: distance_to_goal(p[0]),
             )
 

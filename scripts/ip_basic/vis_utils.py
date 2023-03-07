@@ -1,8 +1,7 @@
 import cv2
 
 
-def cv2_show_image(window_name, image,
-                   size_wh=None, location_xy=None):
+def cv2_show_image(window_name, image, size_wh=None, location_xy=None):
     """Helper function for specifying window size and location when
     displaying images with cv2.
 
@@ -14,8 +13,7 @@ def cv2_show_image(window_name, image,
     """
 
     if size_wh is not None:
-        cv2.namedWindow(window_name,
-                        cv2.WINDOW_KEEPRATIO | cv2.WINDOW_GUI_NORMAL)
+        cv2.namedWindow(window_name, cv2.WINDOW_KEEPRATIO | cv2.WINDOW_GUI_NORMAL)
         cv2.resizeWindow(window_name, *size_wh)
     else:
         cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)

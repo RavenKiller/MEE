@@ -68,9 +68,7 @@ class TruncatedNormal(nn.Module):
         https://en.wikipedia.org/wiki/Truncated_normal_distribution
         """
         standard_normal = Normal(0.0, 1.0)
-        standard_normal.pdf = lambda x: (np.e ** (-0.5 * (x ** 2))) / np.sqrt(
-            2 * np.pi
-        )
+        standard_normal.pdf = lambda x: (np.e ** (-0.5 * (x**2))) / np.sqrt(2 * np.pi)
         alpha = (self._smin - self._loc) / self._scale
         beta = (self._smax - self._loc) / self._scale
 
@@ -81,19 +79,15 @@ class TruncatedNormal(nn.Module):
         beta_cdf = standard_normal.cdf(beta)
         standard_Z = beta_cdf - alpha_cdf
 
-        self._mean = self._loc - self._scale * (
-            (beta_pdf - alpha_pdf) / standard_Z
-        )
+        self._mean = self._loc - self._scale * ((beta_pdf - alpha_pdf) / standard_Z)
 
         t1 = (beta * beta_pdf - alpha * alpha_pdf) / standard_Z
         t2 = ((beta_pdf - alpha_pdf) / standard_Z) ** 2
-        self._variance = (self._scale ** 2) * (1 - t1 - t2)
+        self._variance = (self._scale**2) * (1 - t1 - t2)
 
         self._entropy = 0.5 * np.log(2 * np.pi * np.e)
         self._entropy += torch.log(self._scale * standard_Z)
-        self._entropy += (alpha * alpha_pdf - beta * beta_pdf) / (
-            2 * standard_Z
-        )
+        self._entropy += (alpha * alpha_pdf - beta * beta_pdf) / (2 * standard_Z)
 
     @property
     def mean(self) -> Tensor:
@@ -117,9 +111,7 @@ class TruncatedNormal(nn.Module):
             num_resamples += 1
 
             samples[do_resample] = self._normal.sample()[do_resample]
-            do_resample = (samples < self._smin).logical_or(
-                samples > self._smax
-            )
+            do_resample = (samples < self._smin).logical_or(samples > self._smax)
 
         return samples
 
@@ -131,9 +123,7 @@ class TruncatedNormal(nn.Module):
         if isinstance(value, Number):
             assert value >= self._smin and value <= self._smax, msg
         else:
-            assert (value >= self._smin).all() and (
-                value <= self._smax
-            ).all(), msg
+            assert (value >= self._smin).all() and (value <= self._smax).all(), msg
 
         normal_prob_density = self.A * np.e ** (
             -0.5 * ((value - self._loc) / self._scale) ** 2
@@ -219,9 +209,7 @@ class MultiHeadDotProductAttention(nn.Module):
         if self.normalize:
             self.layer_norm = nn.LayerNorm(d_out, eps=1e-6)
 
-    def forward(
-        self, Q: Tensor, K: Tensor, V: Tensor, mask: None = None
-    ) -> Tensor:
+    def forward(self, Q: Tensor, K: Tensor, V: Tensor, mask: None = None) -> Tensor:
         """Performs multihead scaled dot product attention for some Q, K, V.
         Args:
             Q: [Batch, d_q_in]
@@ -271,9 +259,7 @@ class CustomFixedCategorical(torch.distributions.Categorical):
     to log_prob. All the torch distributions use log_prob.
     """
 
-    def sample(
-        self, sample_shape: Size = torch.Size()  # noqa: B008
-    ) -> Tensor:
+    def sample(self, sample_shape: Size = torch.Size()) -> Tensor:  # noqa: B008
         return super().sample(sample_shape).unsqueeze(-1)
 
     def log_prob(self, actions: Tensor) -> Tensor:
@@ -307,9 +293,7 @@ def batched_index_select(
         >>> index = torch.randint(0,3, (2,))
         >>> result = batched_index_select(x, 1, index)  # size: [2, 4]
     """
-    views = [x.shape[0]] + [
-        1 if i != dim else -1 for i in range(1, len(x.shape))
-    ]
+    views = [x.shape[0]] + [1 if i != dim else -1 for i in range(1, len(x.shape))]
     expanse = list(x.shape)
     expanse[0] = -1
     expanse[dim] = -1

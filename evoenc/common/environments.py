@@ -31,6 +31,7 @@ class VLNCEDaggerEnv(habitat.RLEnv):
     def get_info(self, observations: Observations) -> Dict[Any, Any]:
         return self.habitat_env.get_metrics()
 
+
 @baseline_registry.register_env(name="VLNCERLEnv")
 class VLNCERLEnv(habitat.RLEnv):
     def __init__(self, config: Config, dataset: Optional[Dataset] = None):
@@ -43,35 +44,39 @@ class VLNCERLEnv(habitat.RLEnv):
 
         self.steps = 0
 
-
         super().__init__(config.TASK_CONFIG, dataset)
+
     def reset(self):
         self._previous_action = None
         observations = super().reset()
-        self._previous_measure = self._env.get_metrics()[
-            self._reward_measure_name
-        ]
+        self._previous_measure = self._env.get_metrics()[self._reward_measure_name]
         self.steps = 0
         return observations
+
     def step(self, *args, **kwargs):
         self._previous_action = kwargs["action"]
         return super().step(*args, **kwargs)
+
     def get_reward_range(self) -> Tuple[float, float]:
         return (
             -20,
             20,
         )
+
     def get_reward(self, observations: Observations) -> float:
         reward = self._rl_config.SLACK_REWARD
 
         current_measure = self._env.get_metrics()[self._reward_measure_name]
 
-        reward += (self._previous_measure - current_measure)*self._reward_measuer_ratio
+        reward += (
+            self._previous_measure - current_measure
+        ) * self._reward_measuer_ratio
         self._previous_measure = current_measure
 
         if self._episode_success():
             reward += self._rl_config.SUCCESS_REWARD * float(self._episode_success())
         return reward
+
     def _episode_success(self):
         return self._env.get_metrics()[self._success_measure_name]
 
@@ -111,9 +116,7 @@ class VLNCEInferenceEnv(habitat.RLEnv):
 
 @baseline_registry.register_env(name="VLNCEWaypointEnv")
 class VLNCEWaypointEnv(habitat.RLEnv):
-    def __init__(
-        self, config: Config, dataset: Optional[Dataset] = None
-    ) -> None:
+    def __init__(self, config: Config, dataset: Optional[Dataset] = None) -> None:
         self._rl_config = config.RL
         self._reward_measure_name = self._rl_config.REWARD_MEASURE
         self._success_measure_name = self._rl_config.SUCCESS_MEASURE
@@ -143,9 +146,7 @@ class VLNCEWaypointEnv(habitat.RLEnv):
 
 @baseline_registry.register_env(name="VLNCEWaypointEnvDiscretized")
 class VLNCEWaypointEnvDiscretized(VLNCEWaypointEnv):
-    def __init__(
-        self, config: Config, dataset: Optional[Dataset] = None
-    ) -> None:
+    def __init__(self, config: Config, dataset: Optional[Dataset] = None) -> None:
         self.video_option = config.VIDEO_OPTION
         self.video_dir = config.VIDEO_DIR
         self.video_frames = []
@@ -170,9 +171,7 @@ class VLNCEWaypointEnvDiscretized(VLNCEWaypointEnv):
 
             info = self.get_info(observations)
             self.video_frames = [
-                navigator_video_frame(
-                    observations, info, start_pos, start_heading
-                )
+                navigator_video_frame(observations, info, start_pos, start_heading)
             ]
 
         return observations

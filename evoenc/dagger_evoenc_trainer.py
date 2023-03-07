@@ -46,17 +46,16 @@ def collate_fn(batch):
     )
     """
     ## sort if the batch is not descending
-    batch.sort(key=lambda k: len(k[2]),reverse=True)
+    batch.sort(key=lambda k: len(k[2]), reverse=True)
+
     def _pad_helper(t, max_len, fill_val=0):
         pad_amount = max_len - t.size(0)
         if pad_amount == 0:
             return t
 
-        pad = torch.full_like(t[0:1], fill_val).expand(
-            pad_amount, *t.size()[1:]
-        )
+        pad = torch.full_like(t[0:1], fill_val).expand(pad_amount, *t.size()[1:])
         return torch.cat([t, pad], dim=0)
-    
+
     transposed = list(zip(*batch))
 
     observations_batch = list(transposed[0])
@@ -68,9 +67,7 @@ def collate_fn(batch):
     new_observations_batch = defaultdict(list)
     for sensor in observations_batch[0]:
         for bid in range(B):
-            new_observations_batch[sensor].append(
-                observations_batch[bid][sensor]
-            )
+            new_observations_batch[sensor].append(observations_batch[bid][sensor])
 
     observations_batch = new_observations_batch
 
@@ -82,18 +79,14 @@ def collate_fn(batch):
                 observations_batch[sensor][bid], max_traj_len, fill_val=1.0
             )
 
-        prev_actions_batch[bid] = _pad_helper(
-            prev_actions_batch[bid], max_traj_len
-        )
+        prev_actions_batch[bid] = _pad_helper(prev_actions_batch[bid], max_traj_len)
         corrected_actions_batch[bid] = _pad_helper(
             corrected_actions_batch[bid], max_traj_len
         )
         weights_batch[bid] = _pad_helper(weights_batch[bid], max_traj_len)
 
     for sensor in observations_batch:
-        observations_batch[sensor] = torch.stack(
-            observations_batch[sensor], dim=1
-        )
+        observations_batch[sensor] = torch.stack(observations_batch[sensor], dim=1)
         observations_batch[sensor] = observations_batch[sensor].view(
             -1, *observations_batch[sensor].size()[2:]
         )
@@ -101,9 +94,7 @@ def collate_fn(batch):
     prev_actions_batch = torch.stack(prev_actions_batch, dim=1)
     corrected_actions_batch = torch.stack(corrected_actions_batch, dim=1)
     weights_batch = torch.stack(weights_batch, dim=1)
-    not_done_masks = torch.ones_like(
-        corrected_actions_batch, dtype=torch.uint8
-    )
+    not_done_masks = torch.ones_like(corrected_actions_batch, dtype=torch.uint8)
     not_done_masks[0] = 0
     # !! true not done. not done masks only for building rnn inputs
     # not_done_masks = torch.logical_not(weights_batch==0)
@@ -228,9 +219,7 @@ class IWTrajectoryDataset(torch.utils.data.IterableDataset):
 
         # Reverse so we can use .pop()
         self.load_ordering = list(
-            reversed(
-                _block_shuffle(list(range(start, end)), self.preload_size)
-            )
+            reversed(_block_shuffle(list(range(start, end)), self.preload_size))
         )
 
         return self
@@ -299,16 +288,14 @@ class DaggerTTrainer(BaseVLNCETrainer):
             beta = p - 1.0
         else:
             # in Python 0.0 ** 0.0 == 1.0, but we want 0.0
-            beta = 0.0 if p == 0.0 else p ** data_it
+            beta = 0.0 if p == 0.0 else p**data_it
 
         ensure_unique_episodes = beta == 1.0
 
         collected_eps = 0
         ep_ids_collected = None
         if ensure_unique_episodes:
-            ep_ids_collected = {
-                ep.episode_id for ep in envs.current_episodes()
-            }
+            ep_ids_collected = {ep.episode_id for ep in envs.current_episodes()}
 
         with tqdm.tqdm(
             total=self.config.IL.DAGGER.update_size, dynamic_ncols=True
@@ -316,9 +303,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
             self.lmdb_features_dir,
             map_size=int(self.config.IL.DAGGER.lmdb_map_size),
         ) as lmdb_env, torch.no_grad():
-            pbar.set_description(
-                f"DA {data_it}."
-            )
+            pbar.set_description(f"DA {data_it}.")
             start_id = lmdb_env.stat()["entries"]
             txn = lmdb_env.begin(write=True)
 
@@ -333,7 +318,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
                     if dones[i] and not skips[i]:
                         # Reset storage
                         # self.policy.net.reset_storage(idx=i)
-                        
+
                         ep = episodes[i]
                         traj_obs = batch_obs(
                             [step[0] for step in ep],
@@ -352,31 +337,23 @@ class DaggerTTrainer(BaseVLNCETrainer):
                         ]
                         txn.put(
                             str(start_id + collected_eps).encode(),
-                            msgpack_numpy.packb(
-                                transposed_ep, use_bin_type=True
-                            ),
+                            msgpack_numpy.packb(transposed_ep, use_bin_type=True),
                         )
 
                         pbar.update()
                         collected_eps += 1
 
                         if (
-                            collected_eps
-                            % self.config.IL.DAGGER.lmdb_commit_frequency
+                            collected_eps % self.config.IL.DAGGER.lmdb_commit_frequency
                         ) == 0:
                             txn.commit()
                             txn = lmdb_env.begin(write=True)
 
                         if ensure_unique_episodes:
-                            if (
-                                current_episodes[i].episode_id
-                                in ep_ids_collected
-                            ):
+                            if current_episodes[i].episode_id in ep_ids_collected:
                                 envs_to_pause.append(i)
                             else:
-                                ep_ids_collected.add(
-                                    current_episodes[i].episode_id
-                                )
+                                ep_ids_collected.add(current_episodes[i].episode_id)
 
                     if dones[i]:
                         episodes[i] = []
@@ -441,9 +418,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
                     )
 
                 skips = batch[expert_uuid].long() == -1
-                actions = torch.where(
-                    skips, torch.zeros_like(actions), actions
-                )
+                actions = torch.where(skips, torch.zeros_like(actions), actions)
                 skips = skips.squeeze(-1)  # .to(device="cpu")
                 prev_actions.copy_(actions)
 
@@ -479,9 +454,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
             try:
                 lmdb.open(self.lmdb_features_dir, readonly=True)
             except lmdb.Error as err:
-                logger.error(
-                    "Cannot open database for teacher forcing preload."
-                )
+                logger.error("Cannot open database for teacher forcing preload.")
                 raise err
         else:
             with lmdb.open(
@@ -526,7 +499,13 @@ class DaggerTTrainer(BaseVLNCETrainer):
                 step_id = 0
                 if not self.config.IL.DAGGER.preload_lmdb_features:
                     self._update_dataset(
-                        dagger_it + (1 if self.config.IL.load_from_ckpt and not self.config.IL.load_from_pretrain else 0)
+                        dagger_it
+                        + (
+                            1
+                            if self.config.IL.load_from_ckpt
+                            and not self.config.IL.load_from_pretrain
+                            else 0
+                        )
                     )
 
                 if torch.cuda.is_available():
@@ -552,9 +531,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
                 )
 
                 AuxLosses.activate()
-                for epoch in tqdm.trange(
-                    self.config.IL.epochs, dynamic_ncols=True
-                ):
+                for epoch in tqdm.trange(self.config.IL.epochs, dynamic_ncols=True):
                     batch_bar = tqdm.tqdm(
                         diter,
                         total=dataset.length // dataset.batch_size,
@@ -584,15 +561,11 @@ class DaggerTTrainer(BaseVLNCETrainer):
                             prev_actions_batch.to(
                                 device=self.device, non_blocking=True
                             ),
-                            not_done_masks.to(
-                                device=self.device, non_blocking=True
-                            ),
+                            not_done_masks.to(device=self.device, non_blocking=True),
                             corrected_actions_batch.to(
                                 device=self.device, non_blocking=True
                             ),
-                            weights_batch.to(
-                                device=self.device, non_blocking=True
-                            ),
+                            weights_batch.to(device=self.device, non_blocking=True),
                         )
 
                         # logger.info(f"train_loss: {loss}")
@@ -604,17 +577,13 @@ class DaggerTTrainer(BaseVLNCETrainer):
                         # )
                         # batch_bar.set_description(f"DAgger {dagger_it}, Epoch {epoch}.")
                         # batch_bar.set_postfix({"train_loss":"%2.4f"%(loss), "aux_loss":"%2.4f"%(aux_loss)})
-                        batch_bar.set_description(
-                            f"DA {dagger_it}, E {epoch}."
-                        )
+                        batch_bar.set_description(f"DA {dagger_it}, E {epoch}.")
                         batch_bar.set_postfix(
                             {
                                 "loss": "%2.4f" % (loss),
                             }
                         )
-                        writer.add_scalar(
-                            f"train_loss_iter_{dagger_it}", loss, step_id
-                        )
+                        writer.add_scalar(f"train_loss_iter_{dagger_it}", loss, step_id)
                         writer.add_scalar(
                             f"train_action_loss_iter_{dagger_it}",
                             action_loss,

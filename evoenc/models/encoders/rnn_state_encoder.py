@@ -24,9 +24,7 @@ def _invert_permutation(permutation: torch.Tensor) -> torch.Tensor:
 def _build_pack_info_from_dones(
     dones: torch.Tensor,
     T: int,
-) -> Tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     r"""Create the indexing info needed to make the PackedSequence
     based on the dones.
 
@@ -60,18 +58,14 @@ def _build_pack_info_from_dones(
     # We need to create a transposed start indexing so we can compute episode lengths
     # As if we make the starts index into a N*T tensor, then starts[1] - starts[0]
     # will compute the length of the 0th episode
-    episode_starts_transposed = (
-        rollout_boundaries[:, 1] * T + rollout_boundaries[:, 0]
-    )
+    episode_starts_transposed = rollout_boundaries[:, 1] * T + rollout_boundaries[:, 0]
     # Need to sort so the above logic is correct
     episode_starts_transposed, sorted_indices = torch.sort(
         episode_starts_transposed, descending=False
     )
 
     # Calculate length of episode rollouts
-    rollout_lengths = (
-        episode_starts_transposed[1:] - episode_starts_transposed[:-1]
-    )
+    rollout_lengths = episode_starts_transposed[1:] - episode_starts_transposed[:-1]
     last_len = N * T - episode_starts_transposed[-1]
     rollout_lengths = torch.cat([rollout_lengths, last_len.unsqueeze(0)])
     # Undo the sort above
@@ -111,13 +105,11 @@ def _build_pack_info_from_dones(
         #                   for start in episode_starts[0:num_valid_for_length]
         # * N because each step is seperated by N elements
         new_inds = (
-            torch.arange(
-                prev_len, next_len, device=episode_starts.device
-            ).view(next_len - prev_len, 1)
-            * N
-            + episode_starts[0:num_valid_for_length].view(
-                1, num_valid_for_length
+            torch.arange(prev_len, next_len, device=episode_starts.device).view(
+                next_len - prev_len, 1
             )
+            * N
+            + episode_starts[0:num_valid_for_length].view(1, num_valid_for_length)
         ).view(-1)
 
         select_inds[offset : offset + new_inds.numel()] = new_inds
@@ -153,9 +145,7 @@ def _build_pack_info_from_dones(
 
 def build_rnn_inputs(
     x: torch.Tensor, not_dones: torch.Tensor, rnn_states: torch.Tensor
-) -> Tuple[
-    PackedSequence, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-]:
+) -> Tuple[PackedSequence, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     r"""Create a PackedSequence input for an RNN such that each
     set of steps that are part of the same episode are all part of
     a batch in the PackedSequence.
@@ -200,9 +190,7 @@ def build_rnn_inputs(
     rnn_state_batch_inds = rnn_state_batch_inds.to(device=x.device)
     last_episode_in_batch_mask = last_episode_in_batch_mask.to(device=x.device)
 
-    x_seq = PackedSequence(
-        x.index_select(0, select_inds), batch_sizes, None, None
-    )
+    x_seq = PackedSequence(x.index_select(0, select_inds), batch_sizes, None, None)
 
     # Just select the rnn_states by batch index, the masking bellow will set things
     # to zero in the correct locations
@@ -288,17 +276,13 @@ class RNNStateEncoder(nn.Module):
             masks.bool().view(1, -1, 1), hidden_states, hidden_states.new_zeros(())
         )
 
-        x, hidden_states = self.rnn(
-            x.unsqueeze(0), self.unpack_hidden(hidden_states)
-        )
+        x, hidden_states = self.rnn(x.unsqueeze(0), self.unpack_hidden(hidden_states))
         hidden_states = self.pack_hidden(hidden_states)
 
         x = x.squeeze(0)
         return x, hidden_states
 
-    def seq_forward(
-        self, x, hidden_states, masks
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def seq_forward(self, x, hidden_states, masks) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""Forward for a sequence of length T
 
         Args:
@@ -317,9 +301,7 @@ class RNNStateEncoder(nn.Module):
             last_episode_in_batch_mask,
         ) = build_rnn_inputs(x, masks, hidden_states)
 
-        x_seq, hidden_states = self.rnn(
-            x_seq, self.unpack_hidden(hidden_states)
-        )
+        x_seq, hidden_states = self.rnn(x_seq, self.unpack_hidden(hidden_states))
         hidden_states = self.pack_hidden(hidden_states)
 
         x, hidden_states = build_rnn_out_from_seq(
@@ -333,9 +315,7 @@ class RNNStateEncoder(nn.Module):
 
         return x, hidden_states
 
-    def forward(
-        self, x, hidden_states, masks
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x, hidden_states, masks) -> Tuple[torch.Tensor, torch.Tensor]:
         hidden_states = hidden_states.permute(1, 0, 2)
         if x.size(0) == hidden_states.size(1):
             x, hidden_states = self.single_forward(x, hidden_states, masks)
@@ -373,9 +353,7 @@ class LSTMStateEncoder(RNNStateEncoder):
     ) -> torch.Tensor:
         return torch.cat(hidden_states, 0)
 
-    def unpack_hidden(
-        self, hidden_states
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def unpack_hidden(self, hidden_states) -> Tuple[torch.Tensor, torch.Tensor]:
         lstm_states = torch.chunk(hidden_states, 2, 0)
         return (lstm_states[0].contiguous(), lstm_states[1].contiguous())
 

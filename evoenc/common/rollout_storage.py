@@ -55,9 +55,7 @@ class ActionDictRolloutStorage(RolloutStorage):
         }
         self.prev_actions["pano"] = self.prev_actions["pano"].long()
         if not continuous_distance:
-            self.prev_actions["distance"] = self.prev_actions[
-                "distance"
-            ].long()
+            self.prev_actions["distance"] = self.prev_actions["distance"].long()
         if not continuous_offset:
             self.prev_actions["offset"] = self.prev_actions["offset"].long()
 
@@ -93,12 +91,8 @@ class ActionDictRolloutStorage(RolloutStorage):
         masks: Tensor,
     ) -> None:
         for sensor in observations:
-            self.observations[sensor][self.step + 1].copy_(
-                observations[sensor]
-            )
-        self.recurrent_hidden_states[self.step + 1].copy_(
-            recurrent_hidden_states
-        )
+            self.observations[sensor][self.step + 1].copy_(observations[sensor])
+        self.recurrent_hidden_states[self.step + 1].copy_(recurrent_hidden_states)
 
         for k in action:
             self.actions[k][self.step].copy_(action[k])
@@ -112,13 +106,9 @@ class ActionDictRolloutStorage(RolloutStorage):
 
     def after_update(self) -> None:
         for sensor in self.observations:
-            self.observations[sensor][0].copy_(
-                self.observations[sensor][self.step]
-            )
+            self.observations[sensor][0].copy_(self.observations[sensor][self.step])
 
-        self.recurrent_hidden_states[0].copy_(
-            self.recurrent_hidden_states[self.step]
-        )
+        self.recurrent_hidden_states[0].copy_(self.recurrent_hidden_states[self.step])
         self.masks[0].copy_(self.masks[self.step])
         for k in self.prev_actions:
             self.prev_actions[k][0].copy_(self.prev_actions[k][self.step])
@@ -205,9 +195,7 @@ class ActionDictRolloutStorage(RolloutStorage):
 
                 for k in self.actions:
                     actions_batch[k].append(self.actions[k][: self.step, ind])
-                    prev_actions_batch[k].append(
-                        self.prev_actions[k][: self.step, ind]
-                    )
+                    prev_actions_batch[k].append(self.prev_actions[k][: self.step, ind])
 
                 old_action_log_probs_batch.append(
                     self.action_log_probs[: self.step, ind]
@@ -222,17 +210,13 @@ class ActionDictRolloutStorage(RolloutStorage):
 
             # These are all tensors of size (T, N, -1)
             for sensor in observations_batch:
-                observations_batch[sensor] = torch.stack(
-                    observations_batch[sensor], 1
-                )
+                observations_batch[sensor] = torch.stack(observations_batch[sensor], 1)
 
             for k in self.actions:
                 actions_batch[k] = torch.stack(actions_batch[k], 1)
                 prev_actions_batch[k] = torch.stack(prev_actions_batch[k], 1)
 
-            old_action_log_probs_batch = torch.stack(
-                old_action_log_probs_batch, 1
-            )
+            old_action_log_probs_batch = torch.stack(old_action_log_probs_batch, 1)
             value_preds_batch = torch.stack(value_preds_batch, 1)
             return_batch = torch.stack(return_batch, 1)
             masks_batch = torch.stack(masks_batch, 1)

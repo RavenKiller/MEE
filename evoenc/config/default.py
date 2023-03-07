@@ -119,9 +119,7 @@ _C.IL.DAGGER.lmdb_fp16 = False
 _C.IL.DAGGER.lmdb_commit_frequency = 500
 # If True, load precomputed features directly from lmdb_features_dir.
 _C.IL.DAGGER.preload_lmdb_features = False
-_C.IL.DAGGER.lmdb_features_dir = (
-    "data/trajectories_dirs/debug/trajectories.lmdb"
-)
+_C.IL.DAGGER.lmdb_features_dir = "data/trajectories_dirs/debug/trajectories.lmdb"
 _C.IL.DAGGER.drop_existing_lmdb_features = True
 # ----------------------------------------------------------------------------
 # RL CONFIG
@@ -239,9 +237,22 @@ _C.RL.DDPPO.requeue_path = "data/interrupted_state.pth"
 _C.PRETRAIN = CN()
 _C.PRETRAIN.is_requeue = False
 _C.PRETRAIN.stage = "NONE"
-_C.PRETRAIN.excludes = ["clip_encoder","depth_encoder","rgb_reconstruction","depth_reconstruction","inst_reconstruction","sub_reconstruction","mean_rgb_reconstruction","mean_depth_reconstruction","mean_inst_reconstruction","mean_sub_reconstruction","inner_alignment","outer_alignment"]
+_C.PRETRAIN.excludes = [
+    "clip_encoder",
+    "depth_encoder",
+    "rgb_reconstruction",
+    "depth_reconstruction",
+    "inst_reconstruction",
+    "sub_reconstruction",
+    "mean_rgb_reconstruction",
+    "mean_depth_reconstruction",
+    "mean_inst_reconstruction",
+    "mean_sub_reconstruction",
+    "inner_alignment",
+    "outer_alignment",
+]
 _C.PRETRAIN.masked_feature_ratio = 0.15
-_C.PRETRAIN.max_grad_norm = 1.0 # cat or add
+_C.PRETRAIN.max_grad_norm = 1.0  # cat or add
 
 _C.PRETRAIN.STAGE0 = CN()
 _C.PRETRAIN.STAGE0.load_from_ckpt = False
@@ -251,7 +262,9 @@ _C.PRETRAIN.STAGE0.lr = 1e-4
 _C.PRETRAIN.STAGE0.warmup = 1000
 _C.PRETRAIN.STAGE0.batch_size = 32
 _C.PRETRAIN.STAGE0.loss_weights = [1.0, 1.0]
-_C.PRETRAIN.STAGE0.folder = "/hy-tmp/stage0" # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
+_C.PRETRAIN.STAGE0.folder = (
+    "/hy-tmp/stage0"  # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
+)
 
 _C.PRETRAIN.STAGE1 = CN()
 _C.PRETRAIN.STAGE1.load_from_ckpt = False
@@ -261,7 +274,9 @@ _C.PRETRAIN.STAGE1.lr = 1e-4
 _C.PRETRAIN.STAGE1.warmup = 1000
 _C.PRETRAIN.STAGE1.batch_size = 32
 _C.PRETRAIN.STAGE1.loss_weights = [0.5, 0.5, 1.0]
-_C.PRETRAIN.STAGE1.folder = "/hy-tmp/stage1" # must contains rgb_depth_large.mat, inst_sub_large.mat
+_C.PRETRAIN.STAGE1.folder = (
+    "/hy-tmp/stage1"  # must contains rgb_depth_large.mat, inst_sub_large.mat
+)
 _C.PRETRAIN.STAGE1.positive_ratio = 0.4
 
 _C.PRETRAIN.STAGE2 = CN()
@@ -272,7 +287,7 @@ _C.PRETRAIN.STAGE2.lr = 1e-4
 _C.PRETRAIN.STAGE2.warmup = 1000
 _C.PRETRAIN.STAGE2.batch_size = 32
 _C.PRETRAIN.STAGE2.loss_weights = [0.4, 0.4, 1.0, 1.0]
-_C.PRETRAIN.STAGE2.folder = "/hy-tmp/stage2" # must contains data.mat
+_C.PRETRAIN.STAGE2.folder = "/hy-tmp/stage2"  # must contains data.mat
 _C.PRETRAIN.STAGE2.positive_ratio = 0.3
 _C.PRETRAIN.STAGE2.inner_ratio = 0.5
 
@@ -322,9 +337,7 @@ _C.MODEL.DEPTH_ENCODER.single_size = 128
 # type of resnet to use
 _C.MODEL.DEPTH_ENCODER.backbone = "resnet50"
 # path to DDPPO resnet weights
-_C.MODEL.DEPTH_ENCODER.ddppo_checkpoint = (
-    "data/ddppo-models/gibson-4plus-resnet50.pth"
-)
+_C.MODEL.DEPTH_ENCODER.ddppo_checkpoint = "data/ddppo-models/gibson-4plus-resnet50.pth"
 _C.MODEL.DEPTH_ENCODER.trainable = False
 _C.MODEL.DEPTH_ENCODER.final_relu = True
 
@@ -346,21 +359,21 @@ _C.MODEL.EVOENC.hidden_size = 512
 _C.MODEL.EVOENC.layers = 3
 _C.MODEL.EVOENC.heads = 8
 _C.MODEL.EVOENC.learnable_pe = True
-_C.MODEL.EVOENC.pe_type = "pt" # position, token, split_position, pt, none
+_C.MODEL.EVOENC.pe_type = "pt"  # position, token, split_position, pt, none
 _C.MODEL.EVOENC.rgb_len = 10
 _C.MODEL.EVOENC.depth_len = 16
 _C.MODEL.EVOENC.dropout = 0.25
-_C.MODEL.EVOENC.inner_dropout = 0.0 
+_C.MODEL.EVOENC.inner_dropout = 0.0
 _C.MODEL.EVOENC.pre_ln = True
 _C.MODEL.EVOENC.pre_dropout = 0.25
 _C.MODEL.EVOENC.post_ln = True
 _C.MODEL.EVOENC.post_dropout = 0.0
-_C.MODEL.EVOENC.aggregate = "add" # cat or add
-_C.MODEL.EVOENC.freeze_weights = -1    # -1: not freeze;
-                                            # 0: freeze layers before transformer
-                                            # 1: freeze preLN
-                                            # x>=1: freeze blcks[0:x]
-_C.MODEL.EVOENC.prev_action = False # cat or add
+_C.MODEL.EVOENC.aggregate = "add"  # cat or add
+_C.MODEL.EVOENC.freeze_weights = -1  # -1: not freeze;
+# 0: freeze layers before transformer
+# 1: freeze preLN
+# x>=1: freeze blcks[0:x]
+_C.MODEL.EVOENC.prev_action = False  # cat or add
 
 _C.MODEL.BERT = CN()
 _C.MODEL.BERT.model_name = "bert-base-uncased"
@@ -392,10 +405,14 @@ _C.MODEL.PROGRESS_MONITOR.alpha = 1.0  # loss multiplier \theta
 _C.MODEL.PEAK_ATTENTION = CN()
 _C.MODEL.PEAK_ATTENTION.use = False
 _C.MODEL.PEAK_ATTENTION.gt = True
-_C.MODEL.PEAK_ATTENTION.curve = "gaussian" # gaussian, constant, linear, quadratic, cubic
+_C.MODEL.PEAK_ATTENTION.curve = (
+    "gaussian"  # gaussian, constant, linear, quadratic, cubic
+)
 _C.MODEL.PEAK_ATTENTION.alpha = 1.0  # loss multiplier \lambda
 _C.MODEL.PEAK_ATTENTION.sigma = 0.6  # sigma
-_C.MODEL.PEAK_ATTENTION.type = 0  # the order of polynomial; 0,1,2,3 mean constant, linear, quadratic or cubic
+_C.MODEL.PEAK_ATTENTION.type = (
+    0  # the order of polynomial; 0,1,2,3 mean constant, linear, quadratic or cubic
+)
 _C.MODEL.PEAK_ATTENTION.steps = 60840
 _C.MODEL.PEAK_ATTENTION.threshold = 0.25
 
@@ -466,9 +483,7 @@ def get_config(
         for config_path in config_paths:
             config.merge_from_file(config_path)
             if config.BASE_TASK_CONFIG_PATH != prev_task_config:
-                config.TASK_CONFIG = get_task_config(
-                    config.BASE_TASK_CONFIG_PATH
-                )
+                config.TASK_CONFIG = get_task_config(config.BASE_TASK_CONFIG_PATH)
                 prev_task_config = config.BASE_TASK_CONFIG_PATH
 
     if opts:
@@ -498,12 +513,8 @@ def add_pano_sensors_to_config(config: CN) -> CN:
 
             camera_config.UUID = camera_template.lower()
             sensor_uuids.append(camera_config.UUID)
-            setattr(
-                config.TASK_CONFIG.SIMULATOR, camera_template, camera_config
-            )
-            config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS.append(
-                camera_template
-            )
+            setattr(config.TASK_CONFIG.SIMULATOR, camera_template, camera_config)
+            config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS.append(camera_template)
 
     sensor_uuids = ["depth"]
     if "DEPTH_SENSOR" in config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS:
@@ -515,12 +526,8 @@ def add_pano_sensors_to_config(config: CN) -> CN:
             camera_config.UUID = camera_template.lower()
             sensor_uuids.append(camera_config.UUID)
 
-            setattr(
-                config.TASK_CONFIG.SIMULATOR, camera_template, camera_config
-            )
-            config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS.append(
-                camera_template
-            )
+            setattr(config.TASK_CONFIG.SIMULATOR, camera_template, camera_config)
+            config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS.append(camera_template)
 
     config.SENSORS = config.TASK_CONFIG.SIMULATOR.AGENT_0.SENSORS
     config.freeze()

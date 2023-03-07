@@ -14,6 +14,7 @@ from habitat_baselines.common.baseline_registry import baseline_registry
 import habitat_extensions  # noqa: F401
 import evoenc  # noqa: F401
 from evoenc.config.default import get_config
+
 # from evoenc.nonlearning_agents import (
 #     evaluate_agent,
 #     nonlearning_inference,
@@ -58,9 +59,9 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     logdir = "/".join(config.LOG_FILE.split("/")[:-1])
     if logdir:
         os.makedirs(logdir, exist_ok=True)
-    logger.add_filehandler(config.LOG_FILE%(datetime.now().strftime("%Y%m%d-%H%M%S")))
+    logger.add_filehandler(config.LOG_FILE % (datetime.now().strftime("%Y%m%d-%H%M%S")))
 
-    seed =  random.randrange(0x7F7F7F7F)
+    seed = random.randrange(0x7F7F7F7F)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -72,7 +73,6 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
 
     if run_type == "eval":
         torch.backends.cudnn.deterministic = True
-
 
     trainer_init = baseline_registry.get_trainer(config.TRAINER_NAME)
     assert trainer_init is not None, f"{config.TRAINER_NAME} is not supported"

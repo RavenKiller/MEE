@@ -23,6 +23,7 @@ from torch.optim.lr_scheduler import LambdaLR
 
 from habitat import Config, VectorEnv, logger
 from habitat.utils import profiling_wrapper
+
 # from habitat.utils.visualizations.utils import observations_to_image
 from habitat_extensions.utils import observations_to_image
 from habitat_baselines.common.base_trainer import BaseRLTrainer
@@ -36,6 +37,7 @@ from habitat_baselines.common.obs_transformers import (
 from habitat_baselines.common.rollout_storage import RolloutStorage
 from habitat_baselines.common.tensorboard_utils import TensorboardWriter
 from habitat_baselines.rl.ddppo.algo import DDPPO
+
 try:
     from habitat_baselines.rl.ddppo.ddp_utils import (
         EXIT,
@@ -65,6 +67,7 @@ except ModuleNotFoundError:
 #     PointNavResNetPolicy,
 # )
 from habitat_baselines.rl.ppo import PPO
+
 # from habitat_baselines.rl.ppo.policy import Policy
 from vlnce_baselines.models.mla_ppo_policy import MLAPPOPolicy
 from habitat_baselines.utils.common import (
@@ -75,6 +78,7 @@ from habitat_baselines.utils.common import (
 )
 from vlnce_baselines.common.utils import extract_instruction_tokens
 from habitat_baselines.utils.env_utils import construct_envs
+
 # from vlnce_baselines.common.env_utils import construct_envs
 
 import pickle
@@ -82,15 +86,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 
+
 class MyRolloutStorage(RolloutStorage):
     def recurrent_generator(self, advantages, num_mini_batch):
         num_environments = advantages.size(1)
         assert num_environments >= num_mini_batch, (
             "Trainer requires the number of environments ({}) "
             "to be greater than or equal to the number of "
-            "trainer mini batches ({}).".format(
-                num_environments, num_mini_batch
-            )
+            "trainer mini batches ({}).".format(num_environments, num_mini_batch)
         )
         if num_environments % num_mini_batch != 0:
             warnings.warn(
@@ -102,12 +105,8 @@ class MyRolloutStorage(RolloutStorage):
             )
         for inds in torch.randperm(num_environments).chunk(num_mini_batch):
             batch = self.buffers[0 : self.current_rollout_step_idx, inds]
-            batch["advantages"] = advantages[
-                0 : self.current_rollout_step_idx, inds
-            ]
-            batch["recurrent_hidden_states"] = batch[
-                "recurrent_hidden_states"
-            ]
+            batch["advantages"] = advantages[0 : self.current_rollout_step_idx, inds]
+            batch["recurrent_hidden_states"] = batch["recurrent_hidden_states"]
 
             yield batch.map(lambda v: v.flatten(0, 1))
 
@@ -117,7 +116,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
     r"""Trainer class for PPO algorithm
     Paper: https://arxiv.org/abs/1707.06347.
     """
-    supported_tasks = ["Nav-v0","VLN-v0"]
+    supported_tasks = ["Nav-v0", "VLN-v0"]
 
     SHORT_ROLLOUT_THRESHOLD: float = 0.25
     _is_distributed: bool
@@ -142,9 +141,9 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         self._is_distributed = get_distrib_size()[2] > 1
         self._obs_batching_cache = ObservationBatchingCache()
 
-        self.using_velocity_ctrl = (
-            self.config.TASK_CONFIG.TASK.POSSIBLE_ACTIONS
-        ) == ["VELOCITY_CONTROL"]
+        self.using_velocity_ctrl = (self.config.TASK_CONFIG.TASK.POSSIBLE_ACTIONS) == [
+            "VELOCITY_CONTROL"
+        ]
 
     @property
     def obs_space(self):
@@ -244,7 +243,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
     def _init_envs(self, config=None):
         if config is None:
             config = self.config
-        
+
         tmp = get_env_class(config.ENV_NAME)
         self.envs = construct_envs(
             config,
@@ -253,7 +252,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         )
 
     def _init_train(self):
-        resume_state = None # !! no resume
+        resume_state = None  # !! no resume
         if resume_state is not None:
             self.config: Config = resume_state["config"]
             self.using_velocity_ctrl = (
@@ -305,9 +304,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         self._init_envs()
 
         if self.using_velocity_ctrl:
-            self.policy_action_space = self.envs.action_spaces[0][
-                "VELOCITY_CONTROL"
-            ]
+            self.policy_action_space = self.envs.action_spaces[0]["VELOCITY_CONTROL"]
             action_shape = (2,)
             discrete_actions = False
         else:
@@ -379,7 +376,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
 
         observations = self.envs.reset()
         observations = extract_instruction_tokens(
-            observations, 
+            observations,
             self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
             self.config.TASK_CONFIG.TASK.SUB_INSTRUCTION_SENSOR_UUID,
         )
@@ -427,9 +424,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         if extra_state is not None:
             checkpoint["extra_state"] = extra_state
 
-        torch.save(
-            checkpoint, os.path.join(self.config.CHECKPOINT_FOLDER, file_name)
-        )
+        torch.save(checkpoint, os.path.join(self.config.CHECKPOINT_FOLDER, file_name))
 
     def load_checkpoint(self, checkpoint_path: str, *args, **kwargs) -> Dict:
         r"""Load checkpoint of specified path as a dict.
@@ -447,9 +442,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
     METRICS_BLACKLIST = {"top_down_map", "collisions.is_collision"}
 
     @classmethod
-    def _extract_scalars_from_info(
-        cls, info: Dict[str, Any]
-    ) -> Dict[str, float]:
+    def _extract_scalars_from_info(cls, info: Dict[str, Any]) -> Dict[str, float]:
         result = {}
         for k, v in info.items():
             if k in cls.METRICS_BLACKLIST:
@@ -459,9 +452,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                 result.update(
                     {
                         k + "." + subk: subv
-                        for subk, subv in cls._extract_scalars_from_info(
-                            v
-                        ).items()
+                        for subk, subv in cls._extract_scalars_from_info(v).items()
                         if (k + "." + subk) not in cls.METRICS_BLACKLIST
                     }
                 )
@@ -476,7 +467,6 @@ class VLNCEPPOTrainer(BaseRLTrainer):
     def _extract_scalars_from_infos(
         cls, infos: List[Dict[str, Any]]
     ) -> Dict[str, List[float]]:
-
         results = defaultdict(list)
         for i in range(len(infos)):
             for k, v in cls._extract_scalars_from_info(infos[i]).items():
@@ -557,15 +547,13 @@ class VLNCEPPOTrainer(BaseRLTrainer):
             for index_env in range(env_slice.start, env_slice.stop)
         ]
 
-        observations, rewards_l, dones, infos = [
-            list(x) for x in zip(*outputs)
-        ]
+        observations, rewards_l, dones, infos = [list(x) for x in zip(*outputs)]
 
         self.env_time += time.time() - t_step_env
 
         t_update_stats = time.time()
         observations = extract_instruction_tokens(
-            observations, 
+            observations,
             self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
             self.config.TASK_CONFIG.TASK.SUB_INSTRUCTION_SENSOR_UUID,
         )
@@ -634,9 +622,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         ppo_cfg = self.config.RL.PPO
         t_update_model = time.time()
         with torch.no_grad():
-            step_batch = self.rollouts.buffers[
-                self.rollouts.current_rollout_step_idx
-            ]
+            step_batch = self.rollouts.buffers[self.rollouts.current_rollout_step_idx]
 
             next_value = self.actor_critic.get_value(
                 step_batch["observations"],
@@ -651,9 +637,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
 
         self.agent.train()
 
-        value_loss, action_loss, dist_entropy = self.agent.update(
-            self.rollouts
-        )
+        value_loss, action_loss, dist_entropy = self.agent.update(self.rollouts)
 
         self.rollouts.after_update()
         self.pth_time += time.time() - t_update_model
@@ -668,9 +652,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         self, losses: Dict[str, float], count_steps_delta: int
     ) -> Dict[str, float]:
         stats_ordering = sorted(self.running_episode_stats.keys())
-        stats = torch.stack(
-            [self.running_episode_stats[k] for k in stats_ordering], 0
-        )
+        stats = torch.stack([self.running_episode_stats[k] for k in stats_ordering], 0)
 
         stats = self._all_reduce(stats)
 
@@ -688,9 +670,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
             count_steps_delta = int(stats[-1].item())
             stats /= torch.distributed.get_world_size()
 
-            losses = {
-                k: stats[i].item() for i, k in enumerate(loss_name_ordering)
-            }
+            losses = {k: stats[i].item() for i, k in enumerate(loss_name_ordering)}
 
         if self._is_distributed and rank0_only():
             self.num_rollouts_done_store.set("num_done", "0")
@@ -700,15 +680,9 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         return losses
 
     @rank0_only
-    def _training_log(
-        self, writer, losses: Dict[str, float], prev_time: int = 0
-    ):
+    def _training_log(self, writer, losses: Dict[str, float], prev_time: int = 0):
         deltas = {
-            k: (
-                (v[-1] - v[0]).sum().item()
-                if len(v) > 1
-                else v[0].sum().item()
-            )
+            k: ((v[-1] - v[0]).sum().item() if len(v) > 1 else v[0].sum().item())
             for k, v in self.window_episode_stats.items()
         }
         deltas["count"] = max(deltas["count"], 1.0)
@@ -727,17 +701,16 @@ class VLNCEPPOTrainer(BaseRLTrainer):
             if k not in {"reward", "count"}
         }
         for k, v in metrics.items():
-            writer.add_scalar("metrics/%s"%(k), v, self.num_steps_done)
+            writer.add_scalar("metrics/%s" % (k), v, self.num_steps_done)
         for k, v in losses.items():
-            writer.add_scalar("losses/%s"%(k), v, self.num_steps_done)
+            writer.add_scalar("losses/%s" % (k), v, self.num_steps_done)
 
         # log stats
         if self.num_updates_done % self.config.LOG_INTERVAL == 0:
             logger.info(
                 "update: {}\tfps: {:.3f}\t".format(
                     self.num_updates_done,
-                    self.num_steps_done
-                    / ((time.time() - self.t_start) + prev_time),
+                    self.num_steps_done / ((time.time() - self.t_start) + prev_time),
                 )
             )
 
@@ -768,8 +741,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         # This is where the preemption of workers happens.  If a
         # worker detects it will be a straggler, it preempts itself!
         return (
-            rollout_step
-            >= self.config.RL.PPO.num_steps * self.SHORT_ROLLOUT_THRESHOLD
+            rollout_step >= self.config.RL.PPO.num_steps * self.SHORT_ROLLOUT_THRESHOLD
         ) and int(self.num_rollouts_done_store.get("num_done")) >= (
             self.config.RL.DDPPO.sync_frac * torch.distributed.get_world_size()
         )
@@ -805,23 +777,22 @@ class VLNCEPPOTrainer(BaseRLTrainer):
             self.pth_time = requeue_stats["pth_time"]
             self.num_steps_done = requeue_stats["num_steps_done"]
             self.num_updates_done = requeue_stats["num_updates_done"]
-            self._last_checkpoint_percent = requeue_stats[
-                "_last_checkpoint_percent"
-            ]
+            self._last_checkpoint_percent = requeue_stats["_last_checkpoint_percent"]
             count_checkpoints = requeue_stats["count_checkpoints"]
             prev_time = requeue_stats["prev_time"]
 
             self.running_episode_stats = requeue_stats["running_episode_stats"]
-            self.window_episode_stats.update(
-                requeue_stats["window_episode_stats"]
-            )
+            self.window_episode_stats.update(requeue_stats["window_episode_stats"])
 
         ppo_cfg = self.config.RL.PPO
 
         with (
             TensorboardWriter(
-                os.path.join(self.config.TENSORBOARD_DIR, datetime.now().strftime("%Y%m%d-%H%M%S")), 
-                flush_secs=self.flush_secs
+                os.path.join(
+                    self.config.TENSORBOARD_DIR,
+                    datetime.now().strftime("%Y%m%d-%H%M%S"),
+                ),
+                flush_secs=self.flush_secs,
             )
             if rank0_only()
             else contextlib.suppress()
@@ -892,9 +863,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
 
                         if not is_last_step:
                             if (buffer_index + 1) == self._nbuffers:
-                                profiling_wrapper.range_push(
-                                    "_collect_rollout_step"
-                                )
+                                profiling_wrapper.range_push("_collect_rollout_step")
 
                             self._compute_actions_and_step_envs(buffer_index)
 
@@ -949,10 +918,11 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         metrics = {k: v for k, v in aggregated_stats.items() if k != "reward"}
         if len(metrics) > 0:
             for k, v in metrics.items():
-                writer.add_scalar("eval_metrics/%s"%(k), v, step_id)
+                writer.add_scalar("eval_metrics/%s" % (k), v, step_id)
 
     def _score_hook(self, m, i, o):
         self.sub_score = o[1][:, 0, :].cpu()
+
     def _eval_checkpoint(
         self,
         checkpoint_path: str,
@@ -971,9 +941,12 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         """
         # replace writer
         writer = TensorboardWriter(
-                os.path.join(self.config.TENSORBOARD_DIR, datetime.now().strftime("%Y%m%d-%H%M%S-EVAL")), 
-                flush_secs=self.flush_secs
-            )
+            os.path.join(
+                self.config.TENSORBOARD_DIR,
+                datetime.now().strftime("%Y%m%d-%H%M%S-EVAL"),
+            ),
+            flush_secs=self.flush_secs,
+        )
         if self._is_distributed:
             raise RuntimeError("Evaluation does not support distributed mode")
 
@@ -995,9 +968,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         config.TASK_CONFIG.DATASET.LANGUAGES = config.EVAL.LANGUAGES
         config.TASK_CONFIG.TASK.NDTW.SPLIT = split
         config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = False
-        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = (
-            -1
-        )
+        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = -1
         config.IL.ckpt_to_load = checkpoint_path
         config.use_pbar = not is_slurm_batch_job()
 
@@ -1027,9 +998,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         self._init_envs(config)
 
         if self.using_velocity_ctrl:
-            self.policy_action_space = self.envs.action_spaces[0][
-                "VELOCITY_CONTROL"
-            ]
+            self.policy_action_space = self.envs.action_spaces[0]["VELOCITY_CONTROL"]
             action_shape = (2,)
             action_type = torch.float
         else:
@@ -1044,7 +1013,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
 
         observations = self.envs.reset()
         observations = extract_instruction_tokens(
-            observations, 
+            observations,
             self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
             self.config.TASK_CONFIG.TASK.SUB_INSTRUCTION_SENSOR_UUID,
         )
@@ -1053,9 +1022,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         )
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
-        current_episode_reward = torch.zeros(
-            self.envs.num_envs, 1, device="cpu"
-        )
+        current_episode_reward = torch.zeros(self.envs.num_envs, 1, device="cpu")
 
         test_recurrent_hidden_states = torch.zeros(
             self.config.NUM_ENVIRONMENTS,
@@ -1101,7 +1068,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         pbar = tqdm.tqdm(total=number_of_eval_episodes)
         self.actor_critic.eval()
         if config.DEBUG:
-            os.makedirs("debug_%s"%(config.DEBUG_SUFFIX),exist_ok=True)
+            os.makedirs("debug_%s" % (config.DEBUG_SUFFIX), exist_ok=True)
             score_final = {}
             score_now = [None] * config.NUM_ENVIRONMENTS
             action_final = {}
@@ -1110,10 +1077,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                 self._score_hook
             )
             heatmap = []
-        while (
-            len(stats_episodes) < number_of_eval_episodes
-            and self.envs.num_envs > 0
-        ):
+        while len(stats_episodes) < number_of_eval_episodes and self.envs.num_envs > 0:
             current_episodes = self.envs.current_episodes()
 
             with torch.no_grad():
@@ -1139,19 +1103,16 @@ class VLNCEPPOTrainer(BaseRLTrainer):
             # an int
             if self.using_velocity_ctrl:
                 step_data = [
-                    action_to_velocity_control(a)
-                    for a in actions.to(device="cpu")
+                    action_to_velocity_control(a) for a in actions.to(device="cpu")
                 ]
             else:
                 step_data = [a.item() for a in actions.to(device="cpu")]
 
             outputs = self.envs.step(step_data)
 
-            observations, rewards_l, dones, infos = [
-                list(x) for x in zip(*outputs)
-            ]
+            observations, rewards_l, dones, infos = [list(x) for x in zip(*outputs)]
             observations = extract_instruction_tokens(
-                observations, 
+                observations,
                 self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
                 self.config.TASK_CONFIG.TASK.SUB_INSTRUCTION_SENSOR_UUID,
             )
@@ -1187,9 +1148,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                     pbar.update()
                     episode_stats = {}
                     episode_stats["reward"] = current_episode_reward[i].item()
-                    episode_stats.update(
-                        self._extract_scalars_from_info(infos[i])
-                    )
+                    episode_stats.update(self._extract_scalars_from_info(infos[i]))
                     current_episode_reward[i] = 0
                     # use scene_id + episode_id as unique id for storing stats
                     stats_episodes[
@@ -1225,8 +1184,13 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                         )
                         plt.savefig(
                             "debug_%s/ep%d_success%d_len%d.jpg"
-                            % (config.DEBUG_SUFFIX,int(ep_id), int(infos[i]["success"]), l),
-                            dpi=50
+                            % (
+                                config.DEBUG_SUFFIX,
+                                int(ep_id),
+                                int(infos[i]["success"]),
+                                l,
+                            ),
+                            dpi=50,
                         )
                         # except BaseException:
                         #     pass
@@ -1292,8 +1256,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         aggregated_stats = {}
         for stat_key in next(iter(stats_episodes.values())).keys():
             aggregated_stats[stat_key] = (
-                sum(v[stat_key] for v in stats_episodes.values())
-                / num_episodes
+                sum(v[stat_key] for v in stats_episodes.values()) / num_episodes
             )
 
         for k, v in aggregated_stats.items():
@@ -1325,9 +1288,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
 
         if self.config.INFERENCE.USE_CKPT_CONFIG:
             config = self._setup_eval_config(
-                self.load_checkpoint(checkpoint_path, map_location="cpu")[
-                    "config"
-                ]
+                self.load_checkpoint(checkpoint_path, map_location="cpu")["config"]
             )
         else:
             config = self.config.clone()
@@ -1337,9 +1298,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         config.TASK_CONFIG.DATASET.ROLES = ["guide"]
         config.TASK_CONFIG.DATASET.LANGUAGES = config.INFERENCE.LANGUAGES
         config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = False
-        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = (
-            -1
-        )
+        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = -1
         config.IL.ckpt_to_load = config.INFERENCE.CKPT_PATH
         config.TASK_CONFIG.TASK.MEASUREMENTS = []
         config.TASK_CONFIG.TASK.SENSORS = [
@@ -1348,18 +1307,15 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         config.ENV_NAME = "VLNCEInferenceEnv"
         config.freeze()
 
-        
         self.envs = construct_envs(
             config,
             get_env_class(config.ENV_NAME),
             workers_ignore_signals=is_slurm_batch_job(),
-            auto_reset_done=False
+            auto_reset_done=False,
         )
 
         if self.using_velocity_ctrl:
-            self.policy_action_space = self.envs.action_spaces[0][
-                "VELOCITY_CONTROL"
-            ]
+            self.policy_action_space = self.envs.action_spaces[0]["VELOCITY_CONTROL"]
             action_shape = (2,)
             action_type = torch.float
         else:
@@ -1415,9 +1371,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
 
         # populate episode_predictions with the starting state
         current_episodes = envs.current_episodes()
-        current_episode_reward = torch.zeros(
-            self.envs.num_envs, 1, device="cpu"
-        )
+        current_episode_reward = torch.zeros(self.envs.num_envs, 1, device="cpu")
         for i in range(envs.num_envs):
             episode_predictions[current_episodes[i].episode_id].append(
                 envs.call_at(i, "get_info", {"observations": {}})
@@ -1426,9 +1380,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                 ep_id = current_episodes[i].episode_id
                 k = current_episodes[i].instruction.instruction_id
                 instruction_ids[ep_id] = int(k)
-        logger.info(
-            f"Episodes Num: {envs.count_episodes()}"
-        )
+        logger.info(f"Episodes Num: {envs.count_episodes()}")
 
         with tqdm.tqdm(
             total=sum(envs.count_episodes()),
@@ -1447,9 +1399,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                     prev_actions.copy_(actions)
 
                 outputs = envs.step([a[0].item() for a in actions])
-                observations, _, dones, infos = [
-                    list(x) for x in zip(*outputs)
-                ]
+                observations, _, dones, infos = [list(x) for x in zip(*outputs)]
 
                 not_done_masks = torch.tensor(
                     [[0] if done else [1] for done in dones],
@@ -1462,9 +1412,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
 
                 # reset envs and observations if necessary
                 for i in range(envs.num_envs):
-                    episode_predictions[current_episodes[i].episode_id].append(
-                        infos[i]
-                    )
+                    episode_predictions[current_episodes[i].episode_id].append(infos[i])
                     if not dones[i]:
                         continue
 
@@ -1488,9 +1436,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                     if next_episodes[i].episode_id in episode_predictions:
                         envs_to_pause.append(i)
                     else:
-                        episode_predictions[
-                            next_episodes[i].episode_id
-                        ].append(
+                        episode_predictions[next_episodes[i].episode_id].append(
                             envs.call_at(i, "get_info", {"observations": {}})
                         )
                         if config.INFERENCE.FORMAT == "rxr":
@@ -1535,14 +1481,11 @@ class VLNCEPPOTrainer(BaseRLTrainer):
             with open(config.INFERENCE.PREDICTIONS_FILE, "w") as f:
                 json.dump(episode_predictions, f, indent=2)
 
-            logger.info(
-                f"Predictions saved to: {config.INFERENCE.PREDICTIONS_FILE}"
-            )
+            logger.info(f"Predictions saved to: {config.INFERENCE.PREDICTIONS_FILE}")
         else:  # use 'rxr' format for rxr-habitat leaderboard
             predictions_out = []
 
             for k, v in episode_predictions.items():
-
                 # save only positions that changed
                 path = [v[0]["position"]]
                 for p in v[1:]:
@@ -1557,11 +1500,7 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                 )
 
             predictions_out.sort(key=lambda x: x["instruction_id"])
-            with jsonlines.open(
-                config.INFERENCE.PREDICTIONS_FILE, mode="w"
-            ) as writer:
+            with jsonlines.open(config.INFERENCE.PREDICTIONS_FILE, mode="w") as writer:
                 writer.write_all(predictions_out)
 
-            logger.info(
-                f"Predictions saved to: {config.INFERENCE.PREDICTIONS_FILE}"
-            )
+            logger.info(f"Predictions saved to: {config.INFERENCE.PREDICTIONS_FILE}")

@@ -23,9 +23,7 @@ class GlobalGPSSensor(Sensor):
 
     cls_uuid: str = "globalgps"
 
-    def __init__(
-        self, *args: Any, sim: Simulator, config: Config, **kwargs: Any
-    ):
+    def __init__(self, *args: Any, sim: Simulator, config: Config, **kwargs: Any):
         self._sim = sim
         self._dimensionality = config.DIMENSIONALITY
         super().__init__(config=config)
@@ -129,9 +127,7 @@ class ShortestPathSensor(Sensor):
 
     cls_uuid: str = "shortest_path_sensor"
 
-    def __init__(
-        self, *args: Any, sim: Simulator, config: Config, **kwargs: Any
-    ):
+    def __init__(self, *args: Any, sim: Simulator, config: Config, **kwargs: Any):
         super().__init__(config=config)
         cls = ShortestPathFollower
         if config.USE_ORIGINAL_FOLLOWER:
@@ -181,9 +177,7 @@ class RxRInstructionSensor(Sensor):
             dtype=np.float,
         )
 
-    def get_observation(
-        self, *args: Any, episode: VLNExtendedEpisode, **kwargs
-    ):
+    def get_observation(self, *args: Any, episode: VLNExtendedEpisode, **kwargs):
         features = np.load(
             self.features_path.format(
                 split=episode.instruction.split,
@@ -204,22 +198,18 @@ class InstructionSensor(Sensor):
         self.observation_space = spaces.Box(
             low=0,
             high=65535,
-            shape=(
-                77,
-            ),
+            shape=(77,),
             dtype=np.int64,
         )
 
     def _get_uuid(self, *args: Any, **kwargs: Any) -> str:
         return self.uuid
+
     def _get_observation_space(self, *args: Any, **kwargs: Any) -> spaces.Box:
         return self.observation_space
 
     def _get_observation(
-        self,
-        observations: Dict[str, Observations],
-        episode: VLNEpisode,
-        **kwargs
+        self, observations: Dict[str, Observations], episode: VLNEpisode, **kwargs
     ):
         return {
             "text": episode.instruction.instruction_text,
@@ -229,6 +219,7 @@ class InstructionSensor(Sensor):
 
     def get_observation(self, **kwargs):
         return self._get_observation(**kwargs)
+
 
 @registry.register_sensor(name="SubInstructionSensor")
 class SubInstructionSensor(Sensor):
@@ -243,8 +234,10 @@ class SubInstructionSensor(Sensor):
             ),
             dtype=np.int64,
         )
+
     def _get_uuid(self, *args: Any, **kwargs: Any) -> str:
         return self.uuid
+
     def _get_observation_space(self, *args: Any, **kwargs: Any) -> spaces.Box:
         return self.observation_space
 
@@ -262,6 +255,8 @@ class SubInstructionSensor(Sensor):
 
     def get_observation(self, **kwargs):
         return self._get_observation(**kwargs)
+
+
 @registry.register_sensor(name="ActionToSubSensor")
 class ActionToSubSensor(Sensor):
     def __init__(self, sim: Simulator, config: Config, *args: Any, **kwargs: Any):
@@ -269,25 +264,26 @@ class ActionToSubSensor(Sensor):
         self.observation_space = spaces.Box(
             low=0,
             high=65535,
-            shape=(
-                1,
-            ),
+            shape=(1,),
             dtype=np.int,
         )
         self._sim = sim
         self.config = config
         self.step_cnt = 0
         self.current_episode = -1
+
     def _get_uuid(self, *args: Any, **kwargs: Any) -> str:
         return self.uuid
+
     def _get_observation_space(self, *args: Any, **kwargs: Any) -> spaces.Box:
         return self.observation_space
+
     def _pos_to_line(self, position, line):
         position = np.array([position[0], position[2]])
         a = np.array([line[0][0], line[0][2]])
         b = np.array([line[1][0], line[1][2]])
         diff = np.linalg.norm(a - b, ord=2)
-        if diff<1e-2:
+        if diff < 1e-2:
             return np.linalg.norm(a - position, ord=2)
         else:
             dist1 = np.linalg.norm(a - position, ord=2)
@@ -296,6 +292,7 @@ class ActionToSubSensor(Sensor):
             vec2 = b - position
             dist3 = np.abs(np.cross(vec1, vec2)) / np.linalg.norm(a - b)
             return min(dist1, dist2, dist3)
+
     def _get_observation(
         self,
         observations: Dict[str, Observations],
@@ -304,12 +301,12 @@ class ActionToSubSensor(Sensor):
     ):
         a2s = episode.action_to_sub
         episode_id = episode.episode_id
-        if episode_id!=self.current_episode:
+        if episode_id != self.current_episode:
             self.current_episode = episode_id
             self.step_cnt = 0
         idx = a2s[self.step_cnt]
         self.step_cnt += 1
-        self.step_cnt = min(self.step_cnt, len(a2s)-1)
+        self.step_cnt = min(self.step_cnt, len(a2s) - 1)
         return np.array([idx], dtype=int)
 
     def get_observation(self, **kwargs):

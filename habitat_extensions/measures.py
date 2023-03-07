@@ -54,9 +54,7 @@ class PathLength(Measure):
 
     def update_metric(self, *args: Any, **kwargs: Any):
         current_position = self._sim.get_agent_state().position
-        self._metric += euclidean_distance(
-            current_position, self._previous_position
-        )
+        self._metric += euclidean_distance(current_position, self._previous_position)
         self._previous_position = current_position
 
 
@@ -159,18 +157,14 @@ class WaypointRewardMeasure(Measure):
     ) -> None:
         self._sim = sim
         self._slack_reward = config.slack_reward
-        self._use_distance_scaled_slack_reward = (
-            config.use_distance_scaled_slack_reward
-        )
+        self._use_distance_scaled_slack_reward = config.use_distance_scaled_slack_reward
         self._scale_slack_on_prediction = config.scale_slack_on_prediction
         self._success_reward = config.success_reward
         self._distance_scalar = config.distance_scalar
         self._prev_position = None
         super().__init__()
 
-    def reset_metric(
-        self, *args: Any, task: EmbodiedTask, **kwargs: Any
-    ) -> None:
+    def reset_metric(self, *args: Any, task: EmbodiedTask, **kwargs: Any) -> None:
         task.measurements.check_measure_dependencies(
             self.uuid, [DistanceToGoal.cls_uuid, Success.cls_uuid]
         )
@@ -178,9 +172,7 @@ class WaypointRewardMeasure(Measure):
             "distance_to_goal"
         ].get_metric()
         self._metric = 0.0
-        self._prev_position = np.take(
-            self._sim.get_agent_state().position, [0, 2]
-        )
+        self._prev_position = np.take(self._sim.get_agent_state().position, [0, 2])
 
     def _get_scaled_slack_reward(self, action: Action) -> float:
         if isinstance(action["action"], int):
@@ -200,15 +192,9 @@ class WaypointRewardMeasure(Measure):
         return min(self._slack_reward, scaled_slack_reward)
 
     def _progress_to_goal(self, task: EmbodiedTask) -> float:
-        distance_to_goal = task.measurements.measures[
-            "distance_to_goal"
-        ].get_metric()
-        distance_to_goal_delta = (
-            self._previous_distance_to_goal - distance_to_goal
-        )
-        if np.isnan(distance_to_goal_delta) or np.isinf(
-            distance_to_goal_delta
-        ):
+        distance_to_goal = task.measurements.measures["distance_to_goal"].get_metric()
+        distance_to_goal_delta = self._previous_distance_to_goal - distance_to_goal
+        if np.isnan(distance_to_goal_delta) or np.isinf(distance_to_goal_delta):
             l = self._sim.get_agent_state().position
             logger.error(
                 f"\nNaN or inf encountered in distance measure. agent location: {l}",
@@ -223,8 +209,7 @@ class WaypointRewardMeasure(Measure):
         reward = self._get_scaled_slack_reward(action)
         reward += self._progress_to_goal(task)
         reward += (
-            self._success_reward
-            * task.measurements.measures["success"].get_metric()
+            self._success_reward * task.measurements.measures["success"].get_metric()
         )
         self._metric = reward
 
@@ -241,9 +226,7 @@ class NDTW(Measure):
 
     cls_uuid: str = "ndtw"
 
-    def __init__(
-        self, *args: Any, sim: Simulator, config: Config, **kwargs: Any
-    ):
+    def __init__(self, *args: Any, sim: Simulator, config: Config, **kwargs: Any):
         self._sim = sim
         self._config = config
         self.dtw_func = fastdtw if config.FDTW else dtw
@@ -256,9 +239,7 @@ class NDTW(Measure):
                 ) as f:
                     self.gt_json.update(json.load(f))
         else:
-            with gzip.open(
-                config.GT_PATH.format(split=config.SPLIT), "rt"
-            ) as f:
+            with gzip.open(config.GT_PATH.format(split=config.SPLIT), "rt") as f:
                 self.gt_json = json.load(f)
 
         super().__init__()
@@ -285,8 +266,7 @@ class NDTW(Measure):
         )[0]
 
         nDTW = np.exp(
-            -dtw_distance
-            / (len(self.gt_locations) * self._config.SUCCESS_DISTANCE)
+            -dtw_distance / (len(self.gt_locations) * self._config.SUCCESS_DISTANCE)
         )
         self._metric = nDTW
 
@@ -354,9 +334,7 @@ class TopDownMapVLNCE(Measure):
 
         return top_down_map
 
-    def reset_metric(
-        self, *args: Any, episode: Episode, **kwargs: Any
-    ) -> None:
+    def reset_metric(self, *args: Any, episode: Episode, **kwargs: Any) -> None:
         self._scene_id = episode.scene_id.split("/")[-2]
         self._step_count = 0
         self._metric = None
@@ -429,9 +407,9 @@ class TopDownMapVLNCE(Measure):
         self._nearest_node = maps.get_nearest_node(
             self._conn_graphs[scene_id], np.take(agent_position, (0, 2))
         )
-        nn_position = self._conn_graphs[self._scene_id].nodes[
-            self._nearest_node
-        ]["position"]
+        nn_position = self._conn_graphs[self._scene_id].nodes[self._nearest_node][
+            "position"
+        ]
         self.s_x, self.s_y = habitat_maps.to_grid(
             nn_position[2],
             nn_position[0],
@@ -492,9 +470,7 @@ class TopDownMapVLNCE(Measure):
                 self._previous_xy_location,
                 (a_y, a_x),
                 gradient_color,
-                thickness=int(
-                    self._map_resolution * 1.4 / maps.MAP_THICKNESS_SCALAR
-                ),
+                thickness=int(self._map_resolution * 1.4 / maps.MAP_THICKNESS_SCALAR),
                 style="filled",
             )
 
@@ -522,9 +498,9 @@ class TopDownMapVLNCE(Measure):
             self._nearest_node != prev_nearest_node
             and self._config.DRAW_MP3D_AGENT_PATH
         ):
-            nn_position = self._conn_graphs[self._scene_id].nodes[
-                self._nearest_node
-            ]["position"]
+            nn_position = self._conn_graphs[self._scene_id].nodes[self._nearest_node][
+                "position"
+            ]
             (prev_s_x, prev_s_y) = (self.s_x, self.s_y)
             self.s_x, self.s_y = habitat_maps.to_grid(
                 nn_position[2],
@@ -551,9 +527,7 @@ class TopDownMapVLNCE(Measure):
                 thickness=int(
                     1.0
                     / 2.0
-                    * np.round(
-                        self._map_resolution / maps.MAP_THICKNESS_SCALAR
-                    )
+                    * np.round(self._map_resolution / maps.MAP_THICKNESS_SCALAR)
                 ),
             )
 

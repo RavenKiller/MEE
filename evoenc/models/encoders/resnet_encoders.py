@@ -8,6 +8,7 @@ import torchvision.models as models
 from gym import Space, spaces
 from habitat.core.simulator import Observations
 from habitat_baselines.rl.ddppo.policy import resnet
+
 # from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from torch import Tensor
 from habitat_baselines.rl.ddppo.policy.running_mean_and_var import (
@@ -53,12 +54,10 @@ class ResNetEncoder(nn.Module):
             input_channels = self._n_input_depth + self._n_input_rgb
             self.backbone = make_backbone(input_channels, baseplanes, ngroups)
 
-            final_spatial = int(
-                spatial_size * self.backbone.final_spatial_compress
-            )
+            final_spatial = int(spatial_size * self.backbone.final_spatial_compress)
             after_compression_flat_size = 2048
             num_compression_channels = int(
-                round(after_compression_flat_size / (final_spatial ** 2))
+                round(after_compression_flat_size / (final_spatial**2))
             )
             if final_relu:
                 self.compression = nn.Sequential(
@@ -98,9 +97,7 @@ class ResNetEncoder(nn.Module):
     def layer_init(self):
         for layer in self.modules():
             if isinstance(layer, (nn.Conv2d, nn.Linear)):
-                nn.init.kaiming_normal_(
-                    layer.weight, nn.init.calculate_gain("relu")
-                )
+                nn.init.kaiming_normal_(layer.weight, nn.init.calculate_gain("relu"))
                 if layer.bias is not None:
                     nn.init.constant_(layer.bias, val=0)
 
@@ -113,9 +110,7 @@ class ResNetEncoder(nn.Module):
             rgb_observations = observations["rgb"]
             # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
             rgb_observations = rgb_observations.permute(0, 3, 1, 2)
-            rgb_observations = (
-                rgb_observations.float() / 255.0
-            )  # normalize RGB
+            rgb_observations = rgb_observations.float() / 255.0  # normalize RGB
             cnn_input.append(rgb_observations)
 
         if self._n_input_depth > 0:
@@ -134,6 +129,7 @@ class ResNetEncoder(nn.Module):
         x = self.compression(x)
         return x
 
+
 class VlnResnetDepthEncoder(nn.Module):
     def __init__(
         self,
@@ -150,11 +146,7 @@ class VlnResnetDepthEncoder(nn.Module):
 
         self.visual_encoder = ResNetEncoder(
             spaces.Dict(
-                {
-                    "depth": single_frame_box_shape(
-                        observation_space.spaces["depth"]
-                    )
-                }
+                {"depth": single_frame_box_shape(observation_space.spaces["depth"])}
             ),
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes // 2,
@@ -186,9 +178,7 @@ class VlnResnetDepthEncoder(nn.Module):
             self.output_shape = (output_size,)
             self.visual_fc = nn.Sequential(
                 nn.Flatten(),
-                nn.Linear(
-                    np.prod(self.visual_encoder.output_shape), output_size
-                ),
+                nn.Linear(np.prod(self.visual_encoder.output_shape), output_size),
                 nn.ReLU(True),
             )
         else:
@@ -234,6 +224,7 @@ class VlnResnetDepthEncoder(nn.Module):
         else:
             return self.visual_fc(x)
 
+
 class VlnResnetDepthEncoderOld(nn.Module):
     def __init__(
         self,
@@ -250,11 +241,7 @@ class VlnResnetDepthEncoderOld(nn.Module):
 
         self.visual_encoder = ResNetEncoder(
             spaces.Dict(
-                {
-                    "depth": single_frame_box_shape(
-                        observation_space.spaces["depth"]
-                    )
-                }
+                {"depth": single_frame_box_shape(observation_space.spaces["depth"])}
             ),
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes // 2,
@@ -286,9 +273,7 @@ class VlnResnetDepthEncoderOld(nn.Module):
             self.output_shape = (output_size,)
             self.visual_fc = nn.Sequential(
                 nn.Flatten(),
-                nn.Linear(
-                    np.prod(self.visual_encoder.output_shape), output_size
-                ),
+                nn.Linear(np.prod(self.visual_encoder.output_shape), output_size),
                 nn.ReLU(True),
             )
         else:
@@ -405,12 +390,12 @@ class TorchVisionResNet(nn.Module):
             """
             imgs = imgs.contiguous() / 255.0
             if self.normalize_visual_inputs:
-                mean_norm = torch.tensor([0.485, 0.456, 0.406]).to(
-                    device=imgs.device
-                )[None, :, None, None]
-                std_norm = torch.tensor([0.229, 0.224, 0.225]).to(
-                    device=imgs.device
-                )[None, :, None, None]
+                mean_norm = torch.tensor([0.485, 0.456, 0.406]).to(device=imgs.device)[
+                    None, :, None, None
+                ]
+                std_norm = torch.tensor([0.229, 0.224, 0.225]).to(device=imgs.device)[
+                    None, :, None, None
+                ]
                 return imgs.sub(mean_norm).div(std_norm)
             else:
                 return imgs
