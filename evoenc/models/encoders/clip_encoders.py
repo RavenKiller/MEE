@@ -81,14 +81,10 @@ class CLIPEncoder(nn.Module):
                 self.model.encode_text(sub_instruction[idx]).float()
                 # LND -> NLD
                 sub_embedding_seq = self.sub_embedding_seq.float().permute(1, 0, 2)
-                if self.use_mean:
-                    am = attention_mask[idx]
-                    lengths = am.sum(dim=1).unsqueeze(1)  # Word numbers in useful subs
-                    sub_embedding_seq = (sub_embedding_seq * am.unsqueeze(2)).sum(
-                        dim=1
-                    ) / lengths
-                else:
-                    sub_embedding_seq = sub_embedding_seq[:, 0, :]
+                sub_embedding_seq = sub_embedding_seq[
+                    torch.arange(sub_embedding_seq.shape[0]),
+                    sub_instruction[idx].argmax(dim=-1)
+                ]
                 sub_embedding[idx] = sub_embedding_seq
                 sub_embedding = sub_embedding.reshape(
                     (shape[0], shape[1], sub_embedding.shape[-1])
