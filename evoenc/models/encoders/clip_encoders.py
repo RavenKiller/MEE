@@ -86,15 +86,36 @@ class CLIPEncoder(nn.Module):
                 sub_embedding_seq = self.sub_embedding_seq.float().permute(
                     1, 0, 2
                 )
+                sub_embedding[idx] = sub_embedding_seq
+                sub_embedding = sub_embedding.reshape((shape[0], shape[1], sub_embedding.shape[-1]))
+                sub_mask = (sub_embedding!=0).any(dim=2)
+
+                
+                sub_instruction = observations["sub_instruction"].int()
+                shape = sub_instruction.shape
+                sub_instruction = sub_instruction.reshape((-1, shape[-1]))
+                idx = (sub_instruction > 0).any(dim=-1)  # N*L, index of useful position
+                attention_mask = sub_instruction > 0
+                sub_embedding = torch.zeros(
+                    (shape[0] * shape[1], 512), dtype=torch.float
+                ).to(sub_instruction.device)
+                self.model.encode_text(sub_instruction[idx]).float()
+                # LND -> NLD
+                sub_embedding_seq = self.sub_embedding_seq.float().permute(1, 0, 2)
                 if self.use_mean:
                     am = attention_mask[idx]
                     lengths = am.sum(dim=1).unsqueeze(1) # Word numbers in useful subs
                     sub_embedding_seq = (sub_embedding_seq*am.unsqueeze(2)).sum(dim=1)/lengths
                 else:
-                    sub_embedding_seq = sub_embedding_seq[:,0,:]
+                    sub_embedding_seq = sub_embedding_seq[
+                        torch.arange(sub_embedding_seq.shape[0]),
+                        sub_instruction[idx].argmax(dim=-1)
+                    ]
                 sub_embedding[idx] = sub_embedding_seq
-                sub_embedding = sub_embedding.reshape((shape[0], shape[1], sub_embedding.shape[-1]))
-                sub_mask = (sub_embedding!=0).any(dim=2)
+                sub_embedding = sub_embedding.reshape(
+                    (shape[0], shape[1], sub_embedding.shape[-1])
+                )
+                sub_mask = (sub_embedding != 0).any(dim=2)
         return sub_embedding
     def encode_text_old(self, observations: Observations) -> Tensor:
         if "sub_features" in observations:
