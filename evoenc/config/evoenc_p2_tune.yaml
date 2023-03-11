@@ -49,11 +49,9 @@ MODEL:
     output_size: 2048 
     single_size: 128
   EVOENC:
-    rgb_len: 10
-    layers: 6
+    rgb_len: 50
+    layers: 4
     inner_dropout: 0.1
   CLIP:
-    downsample_size: 3
-  SEQ2SEQ:
-    encoder_prev_action: True
-    decoder_prev_action: True
+    downsample_size: 7
+    trainable: False
