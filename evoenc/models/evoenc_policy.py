@@ -97,7 +97,7 @@ class EEPolicy(ILPolicy):
         state_dict_ret = self.state_dict()
         for k in state_dict.keys():
             if (
-                k.split(".")[1] not in excludes
+                k.split(".")[1] not in excludes and k in state_dict_ret
             ):
                 state_dict_ret[k] = state_dict[k]
             else:
@@ -278,6 +278,8 @@ class EENet(Net):
             nn.init.constant_(self.progress_monitor.bias, 0)
 
         # For pretrain, define some heads
+        if self.model_config.EVOENC.learnable_mask:
+            self.mask_embedding = nn.Parameter(torch.empty(1, 768))
         if self.config.PRETRAIN.stage != "NONE":
             # masked feature reconstruction
             self.rgb_reconstruction = nn.Linear(
@@ -366,6 +368,8 @@ class EENet(Net):
     def _init_params(self):
         nn.init.normal_(self.token_embedding, std=0.01)
         nn.init.normal_(self.type_embedding, std=0.01)
+        if self.model_config.EVOENC.learnable_mask:
+            nn.init.normal_(self.mask_embedding, std=0.02)
         proj_std = (self._hidden_size**-0.5) * ((2 * self._transformer_heads) ** -0.5)
         attn_std = self._hidden_size**-0.5
         fc_std = (2 * self._hidden_size) ** -0.5
@@ -599,6 +603,9 @@ class EENet(Net):
     def _feature_mask(self, feature, pad_mask=None):
         """True position in mask is masked"""
         ratio = self._masked_feature_ratio
+        mask_embedding = 0
+        if self.model_config.EVOENC.learnable_mask:
+            mask_embedding = self.mask_embedding[:,:feature.shape[-1]]
         if pad_mask is not None:
             # for instruction
             N = feature.shape[0]
@@ -611,9 +618,11 @@ class EENet(Net):
                 pos = torch.randperm(lengths[i])[:num]
                 mask[i][pos] = True
             masked_feature = feature.clone()
-            masked_feature[mask | pad_mask] = 0
+            masked_feature[pad_mask] = 0
+            masked_feature[mask] = mask_embedding
             return masked_feature, mask
         else:
+            # for vision
             N = feature.shape[0]
             L = feature.shape[1]
             num = int(L * ratio)
@@ -623,7 +632,7 @@ class EENet(Net):
             masked_feature = feature.clone()
             # unable to use masked_feature[mask] = 0 with determinstic algorithms
             # masked_feature.masked_fill_(mask.unsqueeze(2).to(feature.device),0)
-            masked_feature[mask] = 0
+            masked_feature[mask] = mask_embedding
             return masked_feature, mask
 
     def stage0_forward(self, observations, positive=True):

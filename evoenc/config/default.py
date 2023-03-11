@@ -359,6 +359,7 @@ _C.MODEL.EVOENC.hidden_size = 512
 _C.MODEL.EVOENC.layers = 3
 _C.MODEL.EVOENC.heads = 8
 _C.MODEL.EVOENC.learnable_pe = True
+_C.MODEL.EVOENC.learnable_mask = False
 _C.MODEL.EVOENC.pe_type = "pt"  # position, token, split_position, pt, none
 _C.MODEL.EVOENC.rgb_len = 10
 _C.MODEL.EVOENC.depth_len = 16

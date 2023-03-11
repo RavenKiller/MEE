@@ -32,6 +32,7 @@ MODEL:
     layers: 4
     inner_dropout: 0.1
     pe_type: none
+    learnable_mask: True
   CLIP:
     downsample_size: 7
     trainable: False
