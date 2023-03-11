@@ -15,7 +15,6 @@ PRETRAIN:
   STAGE0:
     lr: 1.0e-5
     batch_size: 64
-    epochs: 10
     loss_weights: [1.0, 1.0]
 
 MODEL:
@@ -32,6 +31,7 @@ MODEL:
     rgb_len: 50
     layers: 4
     inner_dropout: 0.1
+    pe_type: none
   CLIP:
     downsample_size: 7
     trainable: False

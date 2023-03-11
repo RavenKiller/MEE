@@ -18,7 +18,7 @@ PRETRAIN:
     epochs: 10
     loss_weights: [0.5, 0.5, 1.0]
     load_from_ckpt: True
-    ckpt_to_load: data/checkpoints/evoenc_p0/ckpt.EEPolicy.9.pth
+    ckpt_to_load: data/checkpoints/evoenc_p0/ckpt.EEPolicy.4.pth
 
 MODEL:
   policy_name: EEPolicy
@@ -34,6 +34,7 @@ MODEL:
     rgb_len: 50
     layers: 4
     inner_dropout: 0.1
+    pe_type: none
   CLIP:
     downsample_size: 7
     trainable: False
