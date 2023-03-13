@@ -539,85 +539,88 @@ class DaggerTTrainer(BaseVLNCETrainer):
                         dynamic_ncols=True,
                     )
                     for batch in batch_bar:
-                        (
-                            observations_batch,
-                            prev_actions_batch,
-                            not_done_masks,
-                            corrected_actions_batch,
-                            weights_batch,
-                        ) = batch
+                        try:
+                            (
+                                observations_batch,
+                                prev_actions_batch,
+                                not_done_masks,
+                                corrected_actions_batch,
+                                weights_batch,
+                            ) = batch
 
-                        observations_batch = {
-                            k: v.to(
-                                device=self.device,
-                                dtype=torch.float32,
-                                non_blocking=True,
-                            )
-                            for k, v in observations_batch.items()
-                        }
-
-                        loss, action_loss, aux_loss = self._update_agent(
-                            observations_batch,
-                            prev_actions_batch.to(
-                                device=self.device, non_blocking=True
-                            ),
-                            not_done_masks.to(device=self.device, non_blocking=True),
-                            corrected_actions_batch.to(
-                                device=self.device, non_blocking=True
-                            ),
-                            weights_batch.to(device=self.device, non_blocking=True),
-                        )
-
-                        # logger.info(f"train_loss: {loss}")
-                        # logger.info(f"train_action_loss: {action_loss}")
-                        # logger.info(f"train_aux_loss: {aux_loss}")
-                        # logger.info(f"Batches processed: {step_id}.")
-                        # logger.info(
-                        #     f"On DAgger iter {dagger_it}, Epoch {epoch}."
-                        # )
-                        # batch_bar.set_description(f"DAgger {dagger_it}, Epoch {epoch}.")
-                        # batch_bar.set_postfix({"train_loss":"%2.4f"%(loss), "aux_loss":"%2.4f"%(aux_loss)})
-                        batch_bar.set_description(f"DA {dagger_it}, E {epoch}.")
-                        batch_bar.set_postfix(
-                            {
-                                "loss": "%2.4f" % (loss),
+                            observations_batch = {
+                                k: v.to(
+                                    device=self.device,
+                                    dtype=torch.float32,
+                                    non_blocking=True,
+                                )
+                                for k, v in observations_batch.items()
                             }
-                        )
-                        writer.add_scalar(f"train_loss_iter_{dagger_it}", loss, step_id)
-                        writer.add_scalar(
-                            f"train_action_loss_iter_{dagger_it}",
-                            action_loss,
-                            step_id,
-                        )
-                        # writer.add_scalar(
-                        #     f"train_aux_loss_iter_{dagger_it}",
-                        #     aux_loss,
-                        #     step_id,
-                        # )
-                        aux_mask = weights_batch.to(
-                            device=self.device, non_blocking=True
-                        )
-                        aux_mask = (aux_mask > 0).view(-1)
-                        # if self.config.MODEL.PEAK_ATTENTION.use:
-                        #     pal = torch.masked_select(
-                        #         AuxLosses.get_loss("peak_attention"), aux_mask
-                        #     ).mean()
-                        #     writer.add_scalar(
-                        #         f"train_peak_loss_iter_{dagger_it}",
-                        #         pal,
-                        #         step_id,
-                        #     )
-                        # if self.config.MODEL.PROGRESS_MONITOR.use:
-                        #     pal = torch.masked_select(
-                        #         AuxLosses.get_loss("progress_monitor"),
-                        #         aux_mask,
-                        #     ).mean()
-                        #     writer.add_scalar(
-                        #         f"train_progress_loss_iter_{dagger_it}",
-                        #         pal,
-                        #         step_id,
-                        #     )
-                        step_id += 1  # noqa: SIM113
+
+                            loss, action_loss, aux_loss = self._update_agent(
+                                observations_batch,
+                                prev_actions_batch.to(
+                                    device=self.device, non_blocking=True
+                                ),
+                                not_done_masks.to(device=self.device, non_blocking=True),
+                                corrected_actions_batch.to(
+                                    device=self.device, non_blocking=True
+                                ),
+                                weights_batch.to(device=self.device, non_blocking=True),
+                            )
+
+                            # logger.info(f"train_loss: {loss}")
+                            # logger.info(f"train_action_loss: {action_loss}")
+                            # logger.info(f"train_aux_loss: {aux_loss}")
+                            # logger.info(f"Batches processed: {step_id}.")
+                            # logger.info(
+                            #     f"On DAgger iter {dagger_it}, Epoch {epoch}."
+                            # )
+                            # batch_bar.set_description(f"DAgger {dagger_it}, Epoch {epoch}.")
+                            # batch_bar.set_postfix({"train_loss":"%2.4f"%(loss), "aux_loss":"%2.4f"%(aux_loss)})
+                            batch_bar.set_description(f"DA {dagger_it}, E {epoch}.")
+                            batch_bar.set_postfix(
+                                {
+                                    "loss": "%2.4f" % (loss),
+                                }
+                            )
+                            writer.add_scalar(f"train_loss_iter_{dagger_it}", loss, step_id)
+                            writer.add_scalar(
+                                f"train_action_loss_iter_{dagger_it}",
+                                action_loss,
+                                step_id,
+                            )
+                            # writer.add_scalar(
+                            #     f"train_aux_loss_iter_{dagger_it}",
+                            #     aux_loss,
+                            #     step_id,
+                            # )
+                            aux_mask = weights_batch.to(
+                                device=self.device, non_blocking=True
+                            )
+                            aux_mask = (aux_mask > 0).view(-1)
+                            # if self.config.MODEL.PEAK_ATTENTION.use:
+                            #     pal = torch.masked_select(
+                            #         AuxLosses.get_loss("peak_attention"), aux_mask
+                            #     ).mean()
+                            #     writer.add_scalar(
+                            #         f"train_peak_loss_iter_{dagger_it}",
+                            #         pal,
+                            #         step_id,
+                            #     )
+                            # if self.config.MODEL.PROGRESS_MONITOR.use:
+                            #     pal = torch.masked_select(
+                            #         AuxLosses.get_loss("progress_monitor"),
+                            #         aux_mask,
+                            #     ).mean()
+                            #     writer.add_scalar(
+                            #         f"train_progress_loss_iter_{dagger_it}",
+                            #         pal,
+                            #         step_id,
+                            #     )
+                            step_id += 1  # noqa: SIM113
+                        except Exception as e:
+                            logger.error(e)
 
                     self.save_checkpoint(
                         f"ckpt.{self.config.MODEL.policy_name}.{dagger_it * self.config.IL.epochs + epoch}.pth"  # to continue train
