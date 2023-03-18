@@ -28,11 +28,10 @@ MODEL:
     single_size: 128
     trainable: False
   EVOENC:
-    rgb_len: 50
+    rgb_len: 10
     layers: 4
     inner_dropout: 0.1
-    pe_type: none
     learnable_mask: True
   CLIP:
-    downsample_size: 7
+    downsample_size: 3
     trainable: False
