@@ -97,7 +97,7 @@ class EEPolicy(ILPolicy):
         state_dict_ret = self.state_dict()
         for k in state_dict.keys():
             if (
-                k.split(".")[1] not in excludes and k in state_dict_ret
+                k.split(".")[1] not in excludes and k in state_dict_ret and state_dict_ret[k].shape==state_dict[k].shape
             ):
                 state_dict_ret[k] = state_dict[k]
             else:
