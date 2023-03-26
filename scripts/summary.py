@@ -31,7 +31,7 @@ model_names = [
     # "transformer_multidec",
     # "transformer_dropin",
     # "transformer_p0_tune",
-    "evoenc_p2_tune",
+    "evoenc_p2_tune_v1.2",
     # "transformer_p2_tune_old",
     # "transformer_none",
     # "transformer_token",
