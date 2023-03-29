@@ -60,7 +60,7 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
         os.makedirs(logdir, exist_ok=True)
     logger.add_filehandler(config.LOG_FILE%(datetime.now().strftime("%Y%m%d-%H%M%S")))
 
-    seed =  random.randrange(0x7F7F7F7F)
+    seed =  config.TASK_CONFIG.SEED
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
