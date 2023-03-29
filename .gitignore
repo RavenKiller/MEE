@@ -169,3 +169,4 @@ tmp.sh
 predictions*.json
 *.pickle
 transformer*.json
+evo.sh

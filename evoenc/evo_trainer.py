@@ -260,6 +260,7 @@ class PreTrainer(BaseVLNCETrainer):
             observation_space=observation_space,
             action_space=action_space,
         )
+        self.policy.train()
         if self.config.PRETRAIN.stage == "STAGE0":
             self._train_stage0()
         elif self.config.PRETRAIN.stage == "STAGE1":
