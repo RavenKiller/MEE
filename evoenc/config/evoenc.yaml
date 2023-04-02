@@ -33,8 +33,6 @@ IL:
 MODEL:
   policy_name: EEPolicy
 
-  INSTRUCTION_ENCODER:
-    bidirectional: True
   PROGRESS_MONITOR:
     use: True
     alpha: 1.0

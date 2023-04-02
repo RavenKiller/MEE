@@ -3,7 +3,7 @@ TRAINER_NAME: dagger_evoenc # dagger, or recollect_trainer
 DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
 TORCH_GPU_ID: 0
-NUM_ENVIRONMENTS: 4
+NUM_ENVIRONMENTS: 6
 TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p2_tune
 CHECKPOINT_FOLDER: data/checkpoints/evoenc_p2_tune
 EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p2_tune
@@ -36,26 +36,18 @@ IL:
 MODEL:
   policy_name: EEPolicy
 
-  INSTRUCTION_ENCODER:
-    bidirectional: True
   PROGRESS_MONITOR:
     use: True
     alpha: 1.0
-  PEAK_ATTENTION:
-    use: True
-    alpha: 0.4
-    sigma: 0.6
   DEPTH_ENCODER:
     output_size: 2048 
     single_size: 128
+    trainable: False
   EVOENC:
-    rgb_len: 10
-    layers: 4
+    rgb_len: 50
+    layers: 6
     inner_dropout: 0.1
-    aggregate: cat
-    prev_action: True
     learnable_mask: True
-
   CLIP:
-    downsample_size: 3
+    downsample_size: 7
     trainable: False
