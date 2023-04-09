@@ -562,7 +562,9 @@ class DaggerTTrainer(BaseVLNCETrainer):
                                 prev_actions_batch.to(
                                     device=self.device, non_blocking=True
                                 ),
-                                not_done_masks.to(device=self.device, non_blocking=True),
+                                not_done_masks.to(
+                                    device=self.device, non_blocking=True
+                                ),
                                 corrected_actions_batch.to(
                                     device=self.device, non_blocking=True
                                 ),
@@ -574,7 +576,9 @@ class DaggerTTrainer(BaseVLNCETrainer):
                                     "loss": "%2.4f" % (loss),
                                 }
                             )
-                            writer.add_scalar(f"train_loss_iter_{dagger_it}", loss, step_id)
+                            writer.add_scalar(
+                                f"train_loss_iter_{dagger_it}", loss, step_id
+                            )
                             writer.add_scalar(
                                 f"train_action_loss_iter_{dagger_it}",
                                 action_loss,

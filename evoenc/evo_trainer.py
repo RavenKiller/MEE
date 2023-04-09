@@ -1,7 +1,6 @@
 import gc
-import os, sys
-
-sys.path.append("/root/MLA")
+import os
+import sys
 import random
 import warnings
 from collections import defaultdict
@@ -9,7 +8,6 @@ from datetime import datetime
 import h5py
 import lmdb
 import msgpack_numpy
-import random
 import numpy as np
 import torch
 from torcheval.metrics.functional import binary_f1_score
@@ -35,6 +33,7 @@ from evoenc.common.base_il_trainer import BaseVLNCETrainer
 from evoenc.common.env_utils import construct_envs
 from evoenc.common.utils import extract_instruction_tokens
 
+sys.path.append("/root/MLA")
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     import tensorflow as tf  # noqa: F401

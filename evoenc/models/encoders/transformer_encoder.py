@@ -225,7 +225,7 @@ class ResidualAttentionBlock(nn.Module):
     def forward(self, inp):
         (x, attn_mask) = inp
         x = x + self.attention(self.ln_1(x), attn_mask)
-        #!! add dropout
+        # !! add dropout
         x = x + self.dropout(self.mlp(self.ln_2(x)))
         return (x, attn_mask)
 
@@ -318,7 +318,7 @@ class VisionTransformer(nn.Module):
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""
 
-    def _convert_weights_to_fp16(l):
+    def _convert_weights_to_fp16(l):  # noqa
         if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Linear)):
             l.weight.data = l.weight.data.half()
             if l.bias is not None:

@@ -97,7 +97,9 @@ class EEPolicy(ILPolicy):
         state_dict_ret = self.state_dict()
         for k in state_dict.keys():
             if (
-                k.split(".")[1] not in excludes and k in state_dict_ret and state_dict_ret[k].shape==state_dict[k].shape
+                k.split(".")[1] not in excludes
+                and k in state_dict_ret
+                and state_dict_ret[k].shape == state_dict[k].shape
             ):
                 state_dict_ret[k] = state_dict[k]
             else:
@@ -182,7 +184,7 @@ class EENet(Net):
             nn.ReLU(inplace=False),
         )
 
-        scale = self._hidden_size**-0.5
+        # scale = self._hidden_size**-0.5
         self.total_len = (
             4 + self.depth_len + self.rgb_len + self.instruction_len + self.sub_len
         )
@@ -402,8 +404,8 @@ class EENet(Net):
         masks: Tensor,
     ) -> Tuple[Tensor, Tensor]:
         # Batch info
-        N = rnn_states.shape[0]
-        T = rnn_states.shape[1]
+        # N = rnn_states.shape[0]
+        # T = rnn_states.shape[1]
 
         # Embedding
         instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
@@ -605,7 +607,7 @@ class EENet(Net):
         ratio = self._masked_feature_ratio
         mask_embedding = 0
         if self.model_config.EVOENC.learnable_mask:
-            mask_embedding = self.mask_embedding[:,:feature.shape[-1]]
+            mask_embedding = self.mask_embedding[:, : feature.shape[-1]]
         if pad_mask is not None:
             # for instruction
             N = feature.shape[0]
@@ -637,7 +639,7 @@ class EENet(Net):
 
     def stage0_forward(self, observations, positive=True):
         # Batch info
-        N = observations["rgb"].shape[0]
+        # N = observations["rgb"].shape[0]
 
         # Embedding
         instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
@@ -895,7 +897,7 @@ class EENet(Net):
         # Embeddings
         #################################################
         # Batch info
-        N = observations["rgb"].shape[0]
+        # N = observations["rgb"].shape[0]
 
         # Embedding
         instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
@@ -1109,7 +1111,7 @@ class EENet(Net):
         # Embeddings
         #################################################
         # Batch info
-        N = observations["rgb"].shape[0]
+        # N = observations["rgb"].shape[0]
 
         # Embedding
         instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)

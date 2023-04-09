@@ -96,7 +96,7 @@ class CLIPEncoder(nn.Module):
                 sub_embedding = sub_embedding.reshape(
                     (shape[0], shape[1], sub_embedding.shape[-1])
                 )
-                sub_mask = (sub_embedding != 0).any(dim=2)
+                # sub_mask = (sub_embedding != 0).any(dim=2)
         return sub_embedding
 
     def encode_text_old(self, observations: Observations) -> Tensor:
@@ -366,9 +366,6 @@ if __name__ == "__main__":
 
     import lmdb
     import msgpack_numpy
-    import numpy as np
-    import torch
-    import tqdm
     from habitat import logger
     from habitat_baselines.common.baseline_registry import baseline_registry
     from habitat_baselines.common.environments import get_env_class

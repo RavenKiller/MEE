@@ -244,7 +244,6 @@ class VLNCEPPOTrainer(BaseRLTrainer):
         if config is None:
             config = self.config
 
-        tmp = get_env_class(config.ENV_NAME)
         self.envs = construct_envs(
             config,
             get_env_class(config.ENV_NAME),
@@ -1316,12 +1315,12 @@ class VLNCEPPOTrainer(BaseRLTrainer):
 
         if self.using_velocity_ctrl:
             self.policy_action_space = self.envs.action_spaces[0]["VELOCITY_CONTROL"]
-            action_shape = (2,)
-            action_type = torch.float
+            # action_shape = (2,)
+            # action_type = torch.float
         else:
             self.policy_action_space = self.envs.action_spaces[0]
-            action_shape = (1,)
-            action_type = torch.long
+            # action_shape = (1,)
+            # action_type = torch.long
         envs = self.envs
         if torch.cuda.is_available():
             self.device = torch.device("cuda", self.config.TORCH_GPU_ID)
@@ -1444,16 +1443,6 @@ class VLNCEPPOTrainer(BaseRLTrainer):
                             k = next_episodes[i].instruction.instruction_id
                             instruction_ids[ep_id] = int(k)
                         if len(self.config.VIDEO_OPTION) > 0:
-                            generate_video(
-                                video_option=self.config.VIDEO_OPTION,
-                                video_dir=self.config.VIDEO_DIR,
-                                images=rgb_frames[i],
-                                episode_id=current_episodes[i].episode_id,
-                                checkpoint_idx=0,
-                                metrics=self._extract_scalars_from_info(infos[i]),
-                                tb_writer=writer,
-                            )
-
                             rgb_frames[i] = []
                     current_episode_reward[i] = 0
 

@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import seaborn as sns
 import random
+import time
 
 sns.set(style="whitegrid")
-import time
 
 if not os.path.exists("data/plots"):
     os.mkdir("data/plots")
@@ -135,7 +135,7 @@ for i, metric in enumerate(metrics):
     # .legend()
     ax[i].legend(
         loc=2, bbox_to_anchor=(1.05, 1.0), borderaxespad=0.0, fontsize=14
-    )  ##设置ax4中legend的位置，将其放在图外
+    )  # 设置ax4中legend的位置，将其放在图外
     ax[i].set_title(val_set + "_" + metric, fontsize=20)
     ax[i].tick_params(labelsize=14)
 fig.tight_layout()
