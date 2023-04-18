@@ -84,3 +84,10 @@ Several paths (like pre-training data folder and checkpoint paths) are configure
 \[[stage 1](https://www.jianguoyun.com/p/DQDYoIIQhY--CRiy0_oEIAA)\] \[[stage 2](https://www.jianguoyun.com/p/DYfUQDQQhY--CRi80_oEIAA)\] \[[stage 2](https://www.jianguoyun.com/p/DfU_ZLgQhY--CRjB0_oEIAA)\] <br/> Access code: `evoenc`
 
 We release pre-trained Enc weights after Evo. We exclude the frozen pre-extractor in these weights to reduce the storage cost. Refer to the code `evoenc/models/evoenc_policy.py` to load pre-trained weights.
+
+## Visualization
++ Comparison with the baseline
+![](https://hzt-1307384245.cos.ap-shanghai.myqcloud.com/markdown/evoenc_visualization_480p.gif)
++ Failure cases
+![](https://hzt-1307384245.cos.ap-shanghai.myqcloud.com/markdown/fail1.gif)
+![](https://hzt-1307384245.cos.ap-shanghai.myqcloud.com/markdown/fail2.gif)
