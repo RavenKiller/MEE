@@ -87,7 +87,7 @@ We release pre-trained Enc weights after Evo. We exclude the frozen pre-extracto
 
 ## Visualization
 + Comparison with the baseline
-![](https://hzt-1307384245.cos.ap-shanghai.myqcloud.com/markdown/evoenc_visualization_480p.gif)
+![](resources/evoenc_visualization_480p.gif)
 + Failure cases
-![](https://hzt-1307384245.cos.ap-shanghai.myqcloud.com/markdown/fail1.gif)
-![](https://hzt-1307384245.cos.ap-shanghai.myqcloud.com/markdown/fail2.gif)
+![](resources/fail1.gif)
+![](resources/fail2.gif)
