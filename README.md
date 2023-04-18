@@ -86,8 +86,13 @@ Several paths (like pre-training data folder and checkpoint paths) are configure
 We release pre-trained Enc weights after Evo. We exclude the frozen pre-extractor in these weights to reduce the storage cost. Refer to the code `evoenc/models/evoenc_policy.py` to load pre-trained weights.
 
 ## Visualization
-+ Comparison with the baseline
-![](resources/evoenc_visualization_480p.gif)
-+ Failure cases
+### Comparison with the baseline:
+(around 18MB, need some time to load; a larger version is in the `resources/`)
+
+![](resources/evoenc_visualization_320p.gif)
+
+### Failure cases:
+
 ![](resources/fail1.gif)
+
 ![](resources/fail2.gif)
