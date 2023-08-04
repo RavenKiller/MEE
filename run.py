@@ -61,15 +61,15 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
         os.makedirs(logdir, exist_ok=True)
     logger.add_filehandler(config.LOG_FILE % (datetime.now().strftime("%Y%m%d-%H%M%S")))
 
-    seed = random.randrange(0x7F7F7F7F)
+    seed =  config.TASK_CONFIG.SEED
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = False
     logger.info(f"random seed: {seed}")
-    # if torch.cuda.is_available():
-    #     torch.set_num_threads(1)
+    if torch.cuda.is_available():
+        torch.set_num_threads(1)
 
     if run_type == "eval":
         torch.backends.cudnn.deterministic = True

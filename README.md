@@ -41,7 +41,7 @@ pip install -r requirements.txt
 ## Evo Dataset
 We proposed an evolutionary pre-training strategy in this work and developed the corresponding datasets. The data collecting scripts are stored in `scripts/` with filenames like `evo_data_stage0.ipynb`. Stage0 here corresponds to stage 1 in the paper.
 
-Our pre-processed version contains a total of 4.8M samples of all modalities. They can be downloaded from [BaiduNetdisk](https://pan.baidu.com/s/1qvbu_z0M_2bWecNGVWKvFQ) with extraction code `mg27`. All data is organized in HDF5 format. The total size after decompression is around 720 GB. Below is the file list:
+Our pre-processed version contains a total of 4.8M samples of all modalities. They can be downloaded from [BaiduNetdisk](https://pan.baidu.com/s/1XnE03NaACv8JQzHdF9_1Eg) (access code: evop). All data is organized in HDF5 format. The total size after decompression is around 720 GB. Below is the file list:
 + stage0.zip
     + rgb.mat: contains RGB data with shape (395439, 224, 224, 3)
     + depth.mat: contains depth data with shape (417900, 256, 256, 1)
@@ -84,3 +84,15 @@ Several paths (like pre-training data folder and checkpoint paths) are configure
 \[[stage 1](https://www.jianguoyun.com/p/DQDYoIIQhY--CRiy0_oEIAA)\] \[[stage 2](https://www.jianguoyun.com/p/DYfUQDQQhY--CRi80_oEIAA)\] \[[stage 2](https://www.jianguoyun.com/p/DfU_ZLgQhY--CRjB0_oEIAA)\] <br/> Access code: `evoenc`
 
 We release pre-trained Enc weights after Evo. We exclude the frozen pre-extractor in these weights to reduce the storage cost. Refer to the code `evoenc/models/evoenc_policy.py` to load pre-trained weights.
+
+## Visualization
+### Comparison with the baseline:
+(around 18MB, need some time to load; a larger version is in the `resources/`)
+
+![](resources/evoenc_visualization_320p.gif)
+
+### Failure cases:
+
+![](resources/fail1.gif)
+
+![](resources/fail2.gif)
