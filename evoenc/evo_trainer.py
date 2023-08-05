@@ -58,6 +58,8 @@ class Stage0Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
         folder,
+        train_frac=1.0,
+        mode="train",
     ):
         super().__init__()
         self.rgb_handler = h5py.File(os.path.join(folder, "rgb.mat"), "r")
@@ -68,20 +70,36 @@ class Stage0Dataset(torch.utils.data.Dataset):
         self.instructions = self.inst_handler["instructions"]
         self.sub_handler = h5py.File(os.path.join(folder, "sub.mat"), "r")
         self.sub_instructions = self.sub_handler["sub_instructions"]
-
-        self.rgb_num = self.rgb.shape[0]
-        self.depth_num = self.depth.shape[0]
-        self.inst_num = self.instructions.shape[0]
-        self.sub_num = self.instructions.shape[0]
+        if mode=="train":
+            self.rgb_num = int(self.rgb.shape[0]*train_frac)
+            self.depth_num = int(self.depth.shape[0]*train_frac)
+            self.inst_num = int(self.instructions.shape[0]*train_frac)
+            self.sub_num = int(self.sub_instructions.shape[0]*train_frac)
+            self.rgb_offset = 0
+            self.depth_offset = 0
+            self.inst_offset = 0
+            self.sub_offset = 0
+        else:
+            self.rgb_num = int(self.rgb.shape[0]*(1-train_frac))
+            self.depth_num = int(self.depth.shape[0]*(1-train_frac))
+            self.inst_num = int(self.instructions.shape[0]*(1-train_frac))
+            self.sub_num = int(self.sub_instructions.shape[0]*(1-train_frac))
+            self.rgb_offset = int(self.rgb.shape[0]*train_frac)-1
+            self.depth_offset = int(self.depth.shape[0]*train_frac)-1
+            self.inst_offset = int(self.instructions.shape[0]*train_frac)-1
+            self.sub_offset = int(self.sub_instructions.shape[0]*train_frac)-1
+        self.train_frac = train_frac
+        self.mode = mode
+        logger.debug("Stage 0 dataset, mode {}, original rgb num {}, used rgb num {}".format(mode, self.rgb.shape[0], self.rgb_num))
 
     def __len__(self):
         return max(self.rgb_num, self.depth_num, self.inst_num, self.sub_num)
 
     def __getitem__(self, idx):
-        rgb = self.rgb[idx % self.rgb_num]
-        depth = self.depth[idx % self.depth_num]
-        instruction = self.instructions[idx % self.inst_num]
-        sub_instruction = self.sub_instructions[idx % self.sub_num]
+        rgb = self.rgb[(idx % self.rgb_num)+self.rgb_offset]
+        depth = self.depth[(idx % self.depth_num)+self.depth_offset]
+        instruction = self.instructions[(idx % self.inst_num)+self.inst_offset]
+        sub_instruction = self.sub_instructions[(idx % self.sub_num)+self.sub_offset]
 
         return {
             "rgb": rgb.astype(np.float32),
@@ -98,33 +116,43 @@ class Stage0Dataset(torch.utils.data.Dataset):
 
 
 class Stage1Dataset(torch.utils.data.Dataset):
-    def __init__(self, folder, positive_ratio=0.33, data_frac=1.0):
+    def __init__(self, folder, positive_ratio=0.33, train_frac=1.0, mode="train"):
         super().__init__()
         self.vision_handler = h5py.File(
             os.path.join(folder, "rgb_depth_large.mat"), "r"
         )
         self.rgb = self.vision_handler["rgb"]
         self.depth = self.vision_handler["depth"]
-        self.vision_num = int(self.rgb.shape[0]*data_frac)
 
         self.language_handler = h5py.File(
             os.path.join(folder, "inst_sub_large.mat"), "r"
         )
         self.instructions = self.language_handler["instructions"]
         self.sub_instructions = self.language_handler["sub_instructions"]
-        self.language_num = int(self.instructions.shape[0]*data_frac)
+        if mode=="train":
+            self.vision_num = int(self.rgb.shape[0]*train_frac)
+            self.language_num = int(self.instructions.shape[0]*train_frac)
+            self.vision_offset = 0
+            self.language_offset = 0
+        else:
+            self.vision_num = int(self.rgb.shape[0]*(1-train_frac))
+            self.language_num = int(self.instructions.shape[0]*(1-train_frac))
+            self.vision_offset = int(self.rgb.shape[0]*train_frac)-1
+            self.language_offset = int(self.instructions.shape[0]*train_frac)-1
 
         self.positive_ratio = positive_ratio
-        self.data_frac = data_frac # propotion of training data
+        self.train_frac = train_frac # propotion of training data
+        self.mode = mode
+        logger.debug("Stage 1 dataset, mode {}, original rgb num {}, used rgb num {}".format(mode, self.rgb.shape[0], self.vision_num))
 
     def __len__(self):
         return int(max(self.vision_num, self.language_num))
 
     def __getitem__(self, idx):
-        rgb = self.rgb[idx % self.vision_num]
-        depth = self.depth[idx % self.vision_num]
-        instruction = self.instructions[idx % self.language_num]
-        sub_instruction = self.sub_instructions[idx % self.language_num]
+        rgb = self.rgb[(idx % self.vision_num)+self.vision_offset]
+        depth = self.depth[(idx % self.vision_num)+self.vision_offset]
+        instruction = self.instructions[(idx % self.language_num)+self.language_offset]
+        sub_instruction = self.sub_instructions[(idx % self.language_num)+self.language_offset]
 
         return {
             "rgb": rgb.astype(np.float32),
@@ -139,7 +167,7 @@ class Stage1Dataset(torch.utils.data.Dataset):
 
 
 class Stage2Dataset(torch.utils.data.Dataset):
-    def __init__(self, folder, positive_ratio=0.33, inner_ratio=0.5, data_frac=1.0):
+    def __init__(self, folder, positive_ratio=0.33, inner_ratio=0.5, train_frac=1.0, mode="train"):
         super().__init__()
         self.data_handler = h5py.File(os.path.join(folder, "data.mat"), "r")
         self.rgb = self.data_handler["rgb"]
@@ -152,21 +180,29 @@ class Stage2Dataset(torch.utils.data.Dataset):
         self.inst_num = self.instructions.shape[0]
         self.sub_num = self.instructions.shape[0]
         assert self.rgb_num== self.depth_num==self.inst_num==self.sub_num
-        self.data_num = int(self.rgb_num*data_frac)
+        if mode=="train":
+            self.data_num = int(self.rgb_num*train_frac)
+            self.data_offset = 0
+        else:
+            self.data_num = int(self.rgb_num*(1-train_frac))
+            self.data_offset = int(self.rgb_num*train_frac)-1
+
 
         self.positive_ratio = positive_ratio  # the positive ratio
         self.inner_ratio = inner_ratio  # the negative inner alignment ratio
-        self.data_frac = data_frac
+        self.train_frac = train_frac
+        self.mode = mode
+        logger.debug("Stage 2 dataset, mode {}, original rgb num {}, used rgb num {}".format(mode, self.rgb.shape[0], self.data_num))
 
     def __len__(self):
         return int(self.data_num)
 
     def __getitem__(self, idx):
 
-        rgb = self.rgb[idx % self.data_num]
-        depth = self.depth[idx % self.data_num]
-        instruction = self.instructions[idx % self.data_num]
-        sub_instruction = self.sub_instructions[idx % self.data_num]
+        rgb = self.rgb[(idx % self.data_num)+self.data_offset]
+        depth = self.depth[(idx % self.data_num)+self.data_offset]
+        instruction = self.instructions[(idx % self.data_num)+self.data_offset]
+        sub_instruction = self.sub_instructions[(idx % self.data_num)+self.data_offset]
 
         return {
             "rgb": rgb.astype(np.float32),
@@ -285,6 +321,8 @@ class PreTrainer(BaseVLNCETrainer):
     def _train_stage0(self):
         dataset = Stage0Dataset(
             folder=self.stage_config.folder,
+            train_frac=self.stage_config.train_frac,
+            mode="train",
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -346,6 +384,8 @@ class PreTrainer(BaseVLNCETrainer):
         dataset = Stage1Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
+            train_frac=self.stage_config.train_frac,
+            mode="train",
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -409,6 +449,8 @@ class PreTrainer(BaseVLNCETrainer):
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
             inner_ratio=self.stage_config.inner_ratio,
+            train_frac=self.stage_config.train_frac,
+            mode="train",
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -537,17 +579,25 @@ class PreTrainer(BaseVLNCETrainer):
         self.policy.net.eval()
 
         if self.config.PRETRAIN.stage == "STAGE0":
-            pass
+            self._eval_stage0(checkpoint_index)
         elif self.config.PRETRAIN.stage == "STAGE1":
             self._eval_stage1(checkpoint_index)
         elif self.config.PRETRAIN.stage == "STAGE2":
             self._eval_stage2(checkpoint_index)
 
+    def _eval_stage0(self, checkpoint_index):
+        dataset = Stage0Dataset(
+            folder=self.stage_config.folder,
+            positive_ratio=self.stage_config.positive_ratio,
+            train_frac=self.stage_config.train_frac,
+            mode="eval",
+        )
     def _eval_stage1(self, checkpoint_index):
         dataset = Stage1Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
-            data_frac=1.0,
+            train_frac=self.stage_config.train_frac,
+            mode="eval",
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -604,7 +654,8 @@ class PreTrainer(BaseVLNCETrainer):
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
             inner_ratio=self.stage_config.inner_ratio,
-            data_frac=1.0,
+            train_frac=self.stage_config.train_frac,
+            mode="eval",
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
