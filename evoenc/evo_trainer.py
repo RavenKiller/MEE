@@ -10,7 +10,7 @@ import lmdb
 import msgpack_numpy
 import numpy as np
 import torch
-from torcheval.metrics.functional import binary_f1_score
+from torcheval.metrics.functional import multiclass_f1_score
 import json
 import tqdm
 import ast
@@ -116,7 +116,7 @@ class Stage0Dataset(torch.utils.data.Dataset):
 
 
 class Stage1Dataset(torch.utils.data.Dataset):
-    def __init__(self, folder, positive_ratio=0.33, train_frac=1.0, mode="train"):
+    def __init__(self, folder, train_frac=1.0, mode="train"):
         super().__init__()
         self.vision_handler = h5py.File(
             os.path.join(folder, "rgb_depth_large.mat"), "r"
@@ -140,7 +140,6 @@ class Stage1Dataset(torch.utils.data.Dataset):
             self.vision_offset = int(self.rgb.shape[0]*train_frac)-1
             self.language_offset = int(self.instructions.shape[0]*train_frac)-1
 
-        self.positive_ratio = positive_ratio
         self.train_frac = train_frac # propotion of training data
         self.mode = mode
         logger.debug("Stage 1 dataset, mode {}, original rgb num {}, used rgb num {}".format(mode, self.rgb.shape[0], self.vision_num))
@@ -167,7 +166,7 @@ class Stage1Dataset(torch.utils.data.Dataset):
 
 
 class Stage2Dataset(torch.utils.data.Dataset):
-    def __init__(self, folder, positive_ratio=0.33, inner_ratio=0.5, train_frac=1.0, mode="train"):
+    def __init__(self, folder, train_frac=1.0, mode="train"):
         super().__init__()
         self.data_handler = h5py.File(os.path.join(folder, "data.mat"), "r")
         self.rgb = self.data_handler["rgb"]
@@ -188,8 +187,6 @@ class Stage2Dataset(torch.utils.data.Dataset):
             self.data_offset = int(self.rgb_num*train_frac)-1
 
 
-        self.positive_ratio = positive_ratio  # the positive ratio
-        self.inner_ratio = inner_ratio  # the negative inner alignment ratio
         self.train_frac = train_frac
         self.mode = mode
         logger.debug("Stage 2 dataset, mode {}, original rgb num {}, used rgb num {}".format(mode, self.rgb.shape[0], self.data_num))
@@ -383,7 +380,6 @@ class PreTrainer(BaseVLNCETrainer):
     def _train_stage1(self):
         dataset = Stage1Dataset(
             folder=self.stage_config.folder,
-            positive_ratio=self.stage_config.positive_ratio,
             train_frac=self.stage_config.train_frac,
             mode="train",
         )
@@ -447,8 +443,6 @@ class PreTrainer(BaseVLNCETrainer):
     def _train_stage2(self):
         dataset = Stage2Dataset(
             folder=self.stage_config.folder,
-            positive_ratio=self.stage_config.positive_ratio,
-            inner_ratio=self.stage_config.inner_ratio,
             train_frac=self.stage_config.train_frac,
             mode="train",
         )
@@ -588,14 +582,70 @@ class PreTrainer(BaseVLNCETrainer):
     def _eval_stage0(self, checkpoint_index):
         dataset = Stage0Dataset(
             folder=self.stage_config.folder,
-            positive_ratio=self.stage_config.positive_ratio,
             train_frac=self.stage_config.train_frac,
             mode="eval",
         )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=64,
+            shuffle=True,
+            num_workers=4,
+            # pin_memory=True
+        )
+        batch_bar = tqdm.tqdm(
+            dataloader,
+            total=len(dataloader.dataset) // dataloader.batch_size,
+            leave=False,
+            dynamic_ncols=True,
+        )
+        fname = os.path.join(
+            self.config.RESULTS_DIR,
+            f"stats_ckpt_{checkpoint_index}_stage0.json",
+        )
+        if os.path.exists(fname):
+            logger.info("skipping -- evaluation exists.")
+            return
+        losses = {}
+        gts = {}
+        pres = {}
+        metrics = {
+            "loss":{},
+            "accuracy":{},
+            "f1score":{},
+        }
+        with torch.no_grad():
+            for batch in batch_bar:
+                batch = {k: v.to(device=self.device) for k, v in batch.items()}
+                now_loss, now_gt_pre = self.policy.net.stage0_forward(batch)
+                for k,v in now_loss.items():
+                    if k not in losses:
+                        losses[k] = []
+                    losses[k].append(v.squeeze().cpu().item())
+                for k,v in now_gt_pre.items():
+                    if "gt" in k:
+                        if k not in gts:
+                            gts[k] = []
+                        gts[k].append(v.squeeze().cpu())
+                    elif "pre" in k:
+                        if k not in pres:
+                            pres[k] = []
+                        pres[k].append(v.squeeze().cpu())
+                    else:
+                        raise Exception
+                batch_bar.set_description(f"C {checkpoint_index}.")
+            for k,v in losses.items():
+                metrics["loss"][k] = np.mean(v)
+            for k,gt in gts.items():
+                gt = torch.cat(gt)
+                pre = torch.cat(pres[k.replace("gt","pre")])
+                metrics["accuracy"][k.replace("_gt","")] = ((gt==pre).sum()/len(gt)).item()
+                metrics["f1score"][k.replace("_gt","")] = multiclass_f1_score(pre, gt, num_classes=dataloader.batch_size, average="macro").item()
+        print(metrics)
+        with open(fname, "w") as f:
+            json.dump(metrics, f, indent=4)
     def _eval_stage1(self, checkpoint_index):
         dataset = Stage1Dataset(
             folder=self.stage_config.folder,
-            positive_ratio=self.stage_config.positive_ratio,
             train_frac=self.stage_config.train_frac,
             mode="eval",
         )
@@ -619,41 +669,48 @@ class PreTrainer(BaseVLNCETrainer):
         if os.path.exists(fname):
             logger.info("skipping -- evaluation exists.")
             return
-        pred_v = []
-        gt_v = []
-        pred_l = []
-        gt_l = []
+        losses = {}
+        gts = {}
+        pres = {}
+        metrics = {
+            "loss":{},
+            "accuracy":{},
+            "f1score":{},
+        }
         with torch.no_grad():
             for batch in batch_bar:
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-                _, res = self.policy.net.stage1_forward(batch)
-                gt_v.append(res["align_gt_v"].squeeze().cpu())
-                pred_v.append(torch.sigmoid(res["align_pre_v"].squeeze().cpu()))
-                gt_l.append(res["align_gt_l"].squeeze().cpu())
-                pred_l.append(torch.sigmoid(res["align_pre_l"].squeeze().cpu()))
+                now_loss, now_gt_pre = self.policy.net.stage1_forward(batch)
+                for k,v in now_loss.items():
+                    if k not in losses:
+                        losses[k] = []
+                    losses[k].append(v.squeeze().cpu().item())
+                for k,v in now_gt_pre.items():
+                    if "gt" in k:
+                        if k not in gts:
+                            gts[k] = []
+                        gts[k].append(v.squeeze().cpu())
+                    elif "pre" in k:
+                        if k not in pres:
+                            pres[k] = []
+                        pres[k].append(v.squeeze().cpu())
+                    else:
+                        raise Exception
                 batch_bar.set_description(f"C {checkpoint_index}.")
-                batch_bar.set_postfix(
-                    {
-                        "V": "%2.4f" % (binary_f1_score(pred_v[-1], gt_v[-1])),
-                        "L": "%2.4f" % (binary_f1_score(pred_l[-1], gt_l[-1])),
-                    }
-                )
-        pred_v = torch.cat(pred_v)
-        gt_v = torch.cat(gt_v)
-        f1_score_v = binary_f1_score(pred_v, gt_v)
-        pred_l = torch.cat(pred_l)
-        gt_l = torch.cat(gt_l)
-        f1_score_l = binary_f1_score(pred_l, gt_l)
-        f1_score = (f1_score_l + f1_score_v) / 2
-        print(f1_score_v, f1_score_l, f1_score)
+            for k,v in losses.items():
+                metrics["loss"][k] = np.mean(v)
+            for k,gt in gts.items():
+                gt = torch.cat(gt)
+                pre = torch.cat(pres[k.replace("gt","pre")])
+                metrics["accuracy"][k.replace("_gt","")] = ((gt==pre).sum()/len(gt)).item()
+                metrics["f1score"][k.replace("_gt","")] = multiclass_f1_score(pre, gt, num_classes=dataloader.batch_size, average="macro").item()
+        print(metrics)
         with open(fname, "w") as f:
-            json.dump({"f1_socre": float(f1_score)}, f, indent=4)
+            json.dump(metrics, f, indent=4)
 
     def _eval_stage2(self, checkpoint_index):
         dataset = Stage2Dataset(
             folder=self.stage_config.folder,
-            positive_ratio=self.stage_config.positive_ratio,
-            inner_ratio=self.stage_config.inner_ratio,
             train_frac=self.stage_config.train_frac,
             mode="eval",
         )
@@ -677,25 +734,44 @@ class PreTrainer(BaseVLNCETrainer):
         if os.path.exists(fname):
             logger.info("skipping -- evaluation exists.")
             return
-        pred = []
-        gt = []
+        losses = {}
+        gts = {}
+        pres = {}
+        metrics = {
+            "loss":{},
+            "accuracy":{},
+            "f1score":{},
+        }
         with torch.no_grad():
             for batch in batch_bar:
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-                _, res = self.policy.net.stage2_forward(batch)
-                gt.append(res["outer_gt"].squeeze())
-                pred.append(torch.sigmoid(res["outer_pre"].squeeze()))
+                now_loss, now_gt_pre = self.policy.net.stage2_forward(batch)
+                for k,v in now_loss.items():
+                    if k not in losses:
+                        losses[k] = []
+                    losses[k].append(v.squeeze().cpu().item())
+                for k,v in now_gt_pre.items():
+                    if "gt" in k:
+                        if k not in gts:
+                            gts[k] = []
+                        gts[k].append(v.squeeze().cpu())
+                    elif "pre" in k:
+                        if k not in pres:
+                            pres[k] = []
+                        pres[k].append(v.squeeze().cpu())
+                    else:
+                        raise Exception
                 batch_bar.set_description(f"C {checkpoint_index}.")
-                batch_bar.set_postfix(
-                    {
-                        "F1": "%2.4f" % (binary_f1_score(pred[-1], gt[-1])),
-                    }
-                )
-        pred = torch.cat(pred).cpu()
-        gt = torch.cat(gt).cpu()
-        f1_score = binary_f1_score(pred, gt)
+            for k,v in losses.items():
+                metrics["loss"][k] = np.mean(v)
+            for k,gt in gts.items():
+                gt = torch.cat(gt)
+                pre = torch.cat(pres[k.replace("gt","pre")])
+                metrics["accuracy"][k.replace("_gt","")] = ((gt==pre).sum()/len(gt)).item()
+                metrics["f1score"][k.replace("_gt","")] = multiclass_f1_score(pre, gt, num_classes=dataloader.batch_size, average="macro").item()
+        print(metrics)
         with open(fname, "w") as f:
-            json.dump({"f1_socre": float(f1_score)}, f, indent=4)
+            json.dump(metrics, f, indent=4)
 
 
 if __name__ == "__main__":
