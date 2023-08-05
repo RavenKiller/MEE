@@ -37,6 +37,19 @@ sys.path.append("/root/MLA")
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     import tensorflow as tf  # noqa: F401
+
+## fake spaces to skip GL error
+from dataclasses import dataclass
+import gym
+@dataclass
+class ActionSpace:
+    """Class for keeping track of an item in inventory."""
+    n: str = 4
+class ObservationSpace:
+    """Class for keeping track of an item in inventory."""
+    def __init__(self): 
+        self.spaces = {"depth": gym.spaces.Box(low=-1.0, high=2.0, shape=(256, 256, 1), dtype=np.float32)}
+
 RAND_MIN = 25
 RAND_MAX = 100000
 
@@ -92,37 +105,32 @@ class Stage1Dataset(torch.utils.data.Dataset):
         )
         self.rgb = self.vision_handler["rgb"]
         self.depth = self.vision_handler["depth"]
-        self.vision_num = self.rgb.shape[0]
+        self.vision_num = int(self.rgb.shape[0]*data_frac)
 
         self.language_handler = h5py.File(
             os.path.join(folder, "inst_sub_large.mat"), "r"
         )
         self.instructions = self.language_handler["instructions"]
         self.sub_instructions = self.language_handler["sub_instructions"]
-        self.language_num = self.instructions.shape[0]
+        self.language_num = int(self.instructions.shape[0]*data_frac)
 
         self.positive_ratio = positive_ratio
-        self.data_frac = data_frac
+        self.data_frac = data_frac # propotion of training data
 
     def __len__(self):
-        return int(max(self.vision_num, self.language_num) * self.data_frac)
+        return int(max(self.vision_num, self.language_num))
 
     def __getitem__(self, idx):
-        positive = random.random() <= self.positive_ratio
-        negative_idx = idx
-        if not positive:
-            negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
         rgb = self.rgb[idx % self.vision_num]
-        depth = self.depth[negative_idx % self.vision_num]
+        depth = self.depth[idx % self.vision_num]
         instruction = self.instructions[idx % self.language_num]
-        sub_instruction = self.sub_instructions[negative_idx % self.language_num]
+        sub_instruction = self.sub_instructions[idx % self.language_num]
 
         return {
             "rgb": rgb.astype(np.float32),
             "depth": depth.astype(np.float32),
             "instruction": instruction.astype(np.int32),  # do not support uint32
             "sub_instruction": sub_instruction.astype(np.int32),
-            "inner_gt": np.array(positive, dtype=np.int32),
         }
 
     def close_h5file(self):
@@ -143,45 +151,28 @@ class Stage2Dataset(torch.utils.data.Dataset):
         self.depth_num = self.depth.shape[0]
         self.inst_num = self.instructions.shape[0]
         self.sub_num = self.instructions.shape[0]
+        assert self.rgb_num== self.depth_num==self.inst_num==self.sub_num
+        self.data_num = int(self.rgb_num*data_frac)
 
         self.positive_ratio = positive_ratio  # the positive ratio
         self.inner_ratio = inner_ratio  # the negative inner alignment ratio
         self.data_frac = data_frac
 
     def __len__(self):
-        return int(self.rgb_num * self.data_frac)
+        return int(self.data_num)
 
     def __getitem__(self, idx):
-        positive = random.random() <= self.positive_ratio
-        inner_negative = random.random() <= self.inner_ratio
-        if positive:
-            rgb = self.rgb[idx % self.rgb_num]
-            depth = self.depth[idx % self.depth_num]
-            instruction = self.instructions[idx % self.inst_num]
-            sub_instruction = self.sub_instructions[idx % self.sub_num]
-        else:
-            if inner_negative:
-                rgb = self.rgb[idx % self.rgb_num]
-                negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-                depth = self.depth[negative_idx % self.depth_num]
-                negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-                instruction = self.instructions[negative_idx % self.inst_num]
-                negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-                sub_instruction = self.sub_instructions[negative_idx % self.sub_num]
-            else:
-                negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-                rgb = self.rgb[idx % self.rgb_num]
-                depth = self.depth[idx % self.depth_num]
-                instruction = self.instructions[negative_idx % self.inst_num]
-                sub_instruction = self.sub_instructions[negative_idx % self.sub_num]
+
+        rgb = self.rgb[idx % self.data_num]
+        depth = self.depth[idx % self.data_num]
+        instruction = self.instructions[idx % self.data_num]
+        sub_instruction = self.sub_instructions[idx % self.data_num]
 
         return {
             "rgb": rgb.astype(np.float32),
             "depth": depth.astype(np.float32),
             "instruction": instruction.astype(np.int32),  # do not support uint32
             "sub_instruction": sub_instruction.astype(np.int32),
-            "inner_gt": np.array((positive or not inner_negative), dtype=np.int32),
-            "outer_gt": np.array(positive, dtype=np.int32),
         }
 
     def close_h5file(self):
@@ -195,7 +186,31 @@ class PreTrainer(BaseVLNCETrainer):
         self._make_ckpt_dir()
         if self.config.EVAL.SAVE_RESULTS:
             self._make_results_dir()
+    def _get_spaces(self, config, envs = None):
+        """Gets both the observation space and action space.
 
+        Args:
+            config (Config): The config specifies the observation transforms.
+            envs (Any, optional): An existing Environment. If None, an
+                environment is created using the config.
+
+        Returns:
+            observation space, action space
+        """
+        # if envs is not None:
+        #     observation_space = envs.observation_spaces[0]
+        #     action_space = envs.action_spaces[0]
+
+        # else:
+        #     env = get_env_class(self.config.ENV_NAME)(config=config)
+        #     observation_space = env.observation_space
+        #     action_space = env.action_space
+
+        # self.obs_transforms = get_active_obs_transforms(self.config)
+        # observation_space = apply_obs_transforms_obs_space(
+        #     observation_space, self.obs_transforms
+        # )
+        return ObservationSpace(), ActionSpace()
     def _initialize_policy(
         self, config, observation_space, action_space, train_mode=True
     ) -> None:
@@ -297,7 +312,7 @@ class PreTrainer(BaseVLNCETrainer):
             for batch in batch_bar:
                 self.optimizer.zero_grad()
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-                losses = self.policy.net.stage0_forward(batch)
+                losses, _ = self.policy.net.stage0_forward(batch)
                 total_loss = 0
                 for i, k in enumerate(losses):
                     w = self.stage_config.loss_weights[i]
@@ -376,7 +391,7 @@ class PreTrainer(BaseVLNCETrainer):
                         "loss": "%2.4f" % (total_loss),
                         "rec": "%2.3f" % (losses["loss_rec"]),
                         "mea": "%2.3f" % (losses["loss_mean"]),
-                        "ali": "%2.3f" % (losses["loss_align"]),
+                        "inner": "%2.3f" % (losses["loss_inner"]),
                     }
                 )
                 for k in losses:

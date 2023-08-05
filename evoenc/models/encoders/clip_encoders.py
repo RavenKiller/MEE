@@ -284,7 +284,6 @@ class VlnResnetDepthEncoder(nn.Module):
         final_relu: bool = False,
     ) -> None:
         super().__init__()
-
         self.visual_encoder = ResNetEncoder(
             spaces.Dict(
                 {"depth": single_frame_box_shape(observation_space.spaces["depth"])}

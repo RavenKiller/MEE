@@ -316,6 +316,14 @@ class EENet(Net):
             self.outer_alignment = nn.Linear(self._hidden_size * 4, 1)
             # noise detection
             # self.noise_detection = nn.Linear(self._hidden_size, 1)
+        # temperatures
+        self.rgb_depth_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
+        self.inst_sub_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
+        self.rgb_inst_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
+        self.rgb_sub_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
+        self.depth_inst_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
+        self.depth_sub_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
+
         if model_config.EVOENC.freeze_weights >= 0:
             level = model_config.EVOENC.freeze_weights
             for param in [
@@ -878,9 +886,100 @@ class EENet(Net):
         sub_mean_rec = self.mean_sub_reconstruction(sub_cls)
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)
 
+        
+        ## ONLY FOR EVALUATION inner alignment, all samples are involved
+        bs = rgb_cls.shape[0]
+        rgb_cls = F.normalize(rgb_cls)
+        depth_cls = F.normalize(depth_cls)
+        logits = torch.matmul(rgb_cls, depth_cls.T) * torch.exp(
+            self.rgb_depth_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_v = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_v = torch.cat([targets, targets], dim=0)
+
+        bs = inst_cls.shape[0]
+        inst_cls = F.normalize(inst_cls)
+        sub_cls = F.normalize(sub_cls)
+        logits = torch.matmul(inst_cls, sub_cls.T) * torch.exp(
+            self.inst_sub_temperature
+        )
+        targets = torch.arange(bs).to(inst_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_l = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_l = torch.cat([targets, targets], dim=0)
+
+        ## ONLY FOR EVALUATION outer alignment, all samples are involved
+        bs = rgb_cls.shape[0]
+        # rgb inst
+        logits = torch.matmul(rgb_cls, inst_cls.T) * torch.exp(
+            self.rgb_inst_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_ri = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_ri = torch.cat([targets, targets], dim=0)
+        # rgb sub
+        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(
+            self.rgb_sub_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_rs = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_rs = torch.cat([targets, targets], dim=0)
+        # depth inst
+        logits = torch.matmul(depth_cls, inst_cls.T) * torch.exp(
+            self.depth_inst_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_di = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_di = torch.cat([targets, targets], dim=0)
+        # depth sub
+        logits = torch.matmul(depth_cls, sub_cls.T) * torch.exp(
+            self.depth_sub_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_ds = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_ds = torch.cat([targets, targets], dim=0)
+
+        predictions_inner = torch.cat([predictions_v, predictions_l], dim=0)
+        targets_inner = torch.cat([targets_v, targets_l], dim=0)
+
+        predictions_outer = torch.cat([predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0)
+        targets_outer = torch.cat([targets_ri, targets_rs, targets_di, targets_ds], dim=0)
+
         return {
             "loss_rec": loss_rec,
             "loss_mean": loss_mean,
+        }, {
+            "inner_gt_v": targets_v,
+            "inner_pre_v": predictions_v,
+            "inner_gt_l": targets_l,
+            "inner_pre_l": predictions_l,
+            
+            "inner_gt": targets_inner,
+            "inner_pre": predictions_inner,
+
+            "outer_gt_ri": targets_ri,
+            "outer_pre_ri": predictions_ri,
+            "outer_gt_rs": targets_rs,
+            "outer_pre_rs": predictions_rs,
+            "outer_gt_di": targets_di,
+            "outer_pre_di": predictions_di,
+            "outer_gt_ds": targets_ds,
+            "outer_pre_ds": predictions_ds,
+
+            "outer_gt": targets_outer,
+            "outer_pre": predictions_outer,
         }
 
     def stage1_forward(self, observations):
@@ -889,9 +988,7 @@ class EENet(Net):
         #################################################
         loss_rec = 0
         loss_mean = 0
-        loss_align = 0
-        align_gt = observations["inner_gt"]
-        positive_idx = align_gt.bool()
+        loss_inner = 0
 
         #################################################
         # Embeddings
@@ -920,12 +1017,12 @@ class EENet(Net):
         depth_embedding_seq = depth_embedding_seq.permute(0, 2, 1)
 
         # Cached features, only positive samples used for reconstruction losses
-        self.rgb_seq_features = rgb_embedding_seq[positive_idx].detach().clone()
+        self.rgb_seq_features = rgb_embedding_seq.detach().clone()
         self.depth_seq_features = (
-            depth_embedding_seq[positive_idx].detach().clone()
+            depth_embedding_seq.detach().clone()
         )  # self.depth_encoder.get_depth_seq_features()
-        self.inst_features = instruction_embedding[positive_idx].detach().clone()
-        self.sub_features = sub_instruction_embedding[positive_idx].detach().clone()
+        self.inst_features = instruction_embedding.detach().clone()
+        self.sub_features = sub_instruction_embedding.detach().clone()
 
         # Masked features
         # feature masks only catch the masked positions, without padding positions
@@ -981,28 +1078,36 @@ class EENet(Net):
         # split output sequence
         rgb_cls = seq_vision_out[:, 0, :]
         depth_cls = seq_vision_out[:, self.rgb_len + 1, :]
-        rgb_out = seq_vision_out[positive_idx, 1 : self.rgb_len + 1, :]
-        depth_out = seq_vision_out[positive_idx, self.rgb_len + 2 :, :]
+        rgb_out = seq_vision_out[:, 1 : self.rgb_len + 1, :]
+        depth_out = seq_vision_out[:, self.rgb_len + 2 :, :]
         # mask feature reconstruction, only positive samples are involved
-        feature_mask_rgb = feature_mask_rgb[positive_idx]
-        feature_mask_depth = feature_mask_depth[positive_idx]
-        rgb_rec = self.rgb_reconstruction(rgb_out[feature_mask_rgb])
-        depth_rec = self.depth_reconstruction(depth_out[feature_mask_depth])
-        loss_rec += F.mse_loss(rgb_rec, self.rgb_seq_features[feature_mask_rgb])
-        loss_rec += F.mse_loss(depth_rec, self.depth_seq_features[feature_mask_depth])
+        rgb_rec = self.rgb_reconstruction(rgb_out)
+        depth_rec = self.depth_reconstruction(depth_out)
+        loss_rec += F.mse_loss(rgb_rec, self.rgb_seq_features)
+        loss_rec += F.mse_loss(depth_rec, self.depth_seq_features)
         # mean feature reconstruction, only positive samples are involved
         rgb_mean_gt = self.rgb_seq_features.mean(dim=1)
-        rgb_mean_rec = self.mean_rgb_reconstruction(rgb_cls[positive_idx])
+        rgb_mean_rec = self.mean_rgb_reconstruction(rgb_cls)
         loss_mean += F.mse_loss(rgb_mean_rec, rgb_mean_gt)
         depth_mean_gt = self.depth_seq_features.mean(dim=1)
-        depth_mean_rec = self.mean_depth_reconstruction(depth_cls[positive_idx])
+        depth_mean_rec = self.mean_depth_reconstruction(depth_cls)
         loss_mean += F.mse_loss(depth_mean_rec, depth_mean_gt)
         # inner alignment, all samples are involved
-        rgb_depth_cls = torch.cat([rgb_cls, depth_cls], dim=1)
-        align_pre_v = self.inner_alignment(rgb_depth_cls)
-        loss_align += F.binary_cross_entropy(
-            torch.sigmoid(align_pre_v.squeeze()), align_gt.float()
+        bs = rgb_cls.shape[0]
+        rgb_cls = F.normalize(rgb_cls)
+        depth_cls = F.normalize(depth_cls)
+        logits = torch.matmul(rgb_cls, depth_cls.T) * torch.exp(
+            self.rgb_depth_temperature
         )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        loss_i2d = F.cross_entropy(logits, targets)
+        loss_d2i = F.cross_entropy(logits.T, targets)
+        loss_inner += ((loss_i2d + loss_d2i) / 2)
+
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_v = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_v = torch.cat([targets, targets], dim=0)
 
         #################################################
         # Language part
@@ -1055,44 +1160,113 @@ class EENet(Net):
         # split output sequence
         inst_cls = seq_language_out[:, 0, :]
         sub_cls = seq_language_out[:, self.instruction_len + 1, :]
-        inst_out = seq_language_out[positive_idx, 1 : self.instruction_len + 1, :]
-        sub_out = seq_language_out[positive_idx, self.instruction_len + 2 :, :]
+        inst_out = seq_language_out[:, 1 : self.instruction_len + 1, :]
+        sub_out = seq_language_out[:, self.instruction_len + 2 :, :]
         # mask feature reconstruction, only positive samples are involved
-        feature_mask_inst = feature_mask_inst[positive_idx]
-        feature_mask_sub = feature_mask_sub[positive_idx]
-        inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst])
-        sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub])
+        inst_rec = self.inst_reconstruction(inst_out)
+        sub_rec = self.sub_reconstruction(sub_out)
         loss_rec += (
-            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst]) / COEF_REC_INST
+            F.mse_loss(inst_rec, self.inst_features) / COEF_REC_INST
         )
-        loss_rec += F.mse_loss(sub_rec, self.sub_features[feature_mask_sub])
+        loss_rec += F.mse_loss(sub_rec, self.sub_features)
         # mean feature reconstruction
         inst_mean_gt = self.inst_features.sum(dim=1) / (
-            (~(mask_inst[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            (~(mask_inst)).sum(dim=1, keepdim=True) + EPS
         )
-        inst_mean_rec = self.mean_inst_reconstruction(inst_cls[positive_idx])
+        inst_mean_rec = self.mean_inst_reconstruction(inst_cls)
         loss_mean += F.mse_loss(inst_mean_rec, inst_mean_gt)
         sub_mean_gt = self.sub_features.sum(dim=1) / (
-            (~(mask_sub[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            (~(mask_sub)).sum(dim=1, keepdim=True) + EPS
         )
-        sub_mean_rec = self.mean_sub_reconstruction(sub_cls[positive_idx])
+        sub_mean_rec = self.mean_sub_reconstruction(sub_cls)
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)
-        # inner alignment
-        inst_sub_cls = torch.cat([inst_cls, sub_cls], dim=1)
-        align_pre_l = self.inner_alignment(inst_sub_cls)
-        loss_align += F.binary_cross_entropy(
-            torch.sigmoid(align_pre_l.squeeze()), align_gt.float()
+        ## inner alignment
+        bs = inst_cls.shape[0]
+        inst_cls = F.normalize(inst_cls)
+        sub_cls = F.normalize(sub_cls)
+        logits = torch.matmul(inst_cls, sub_cls.T) * torch.exp(
+            self.inst_sub_temperature
         )
+        targets = torch.arange(bs).to(inst_cls.device)
+        loss_i2d = F.cross_entropy(logits, targets)
+        loss_d2i = F.cross_entropy(logits.T, targets)
+        loss_inner += ((loss_i2d + loss_d2i) / 2)
+        
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_l = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_l = torch.cat([targets, targets], dim=0)
+
+        
+        ## only for evaluation outer alignment, all samples are involved
+        bs = rgb_cls.shape[0]
+        # rgb inst
+        logits = torch.matmul(rgb_cls, inst_cls.T) * torch.exp(
+            self.rgb_inst_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_ri = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_ri = torch.cat([targets, targets], dim=0)
+        # rgb sub
+        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(
+            self.rgb_sub_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_rs = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_rs = torch.cat([targets, targets], dim=0)
+        # depth inst
+        logits = torch.matmul(depth_cls, inst_cls.T) * torch.exp(
+            self.depth_inst_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_di = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_di = torch.cat([targets, targets], dim=0)
+        # depth sub
+        logits = torch.matmul(depth_cls, sub_cls.T) * torch.exp(
+            self.depth_sub_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_ds = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_ds = torch.cat([targets, targets], dim=0)
+
+        predictions_inner = torch.cat([predictions_v, predictions_l], dim=0)
+        targets_inner = torch.cat([targets_v, targets_l], dim=0)
+
+        predictions_outer = torch.cat([predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0)
+        targets_outer = torch.cat([targets_ri, targets_rs, targets_di, targets_ds], dim=0)
 
         return {
-            "loss_rec": loss_rec if positive_idx.sum() > 0 else 0,
-            "loss_mean": loss_mean if positive_idx.sum() > 0 else 0,
-            "loss_align": loss_align,
+            "loss_rec": loss_rec,
+            "loss_mean": loss_mean,
+            "loss_inner": loss_inner,
         }, {
-            "align_gt_v": align_gt,
-            "align_pre_v": align_pre_v,
-            "align_gt_l": align_gt,
-            "align_pre_l": align_pre_l,
+            "inner_gt_v": targets_v,
+            "inner_pre_v": predictions_v,
+            "inner_gt_l": targets_l,
+            "inner_pre_l": predictions_l,
+            
+            "inner_gt": targets_inner,
+            "inner_pre": predictions_inner,
+
+            "outer_gt_ri": targets_ri,
+            "outer_pre_ri": predictions_ri,
+            "outer_gt_rs": targets_rs,
+            "outer_pre_rs": predictions_rs,
+            "outer_gt_di": targets_di,
+            "outer_pre_di": predictions_di,
+            "outer_gt_ds": targets_ds,
+            "outer_pre_ds": predictions_ds,
+
+            "outer_gt": targets_outer,
+            "outer_pre": predictions_outer,
         }
 
     def stage2_forward(self, observations):
@@ -1103,9 +1277,6 @@ class EENet(Net):
         loss_mean = 0
         loss_inner = 0
         loss_outer = 0
-        inner_gt = observations["inner_gt"]
-        outer_gt = observations["outer_gt"]
-        positive_idx = outer_gt.bool()
 
         #################################################
         # Embeddings
@@ -1134,12 +1305,12 @@ class EENet(Net):
         depth_embedding_seq = depth_embedding_seq.permute(0, 2, 1)
 
         # Cached features, only positive samples used for reconstruction losses
-        self.rgb_seq_features = rgb_embedding_seq[positive_idx].detach().clone()
+        self.rgb_seq_features = rgb_embedding_seq.detach().clone()
         self.depth_seq_features = (
-            depth_embedding_seq[positive_idx].detach().clone()
+            depth_embedding_seq.detach().clone()
         )  # self.depth_encoder.get_depth_seq_features()
-        self.inst_features = instruction_embedding[positive_idx].detach().clone()
-        self.sub_features = sub_instruction_embedding[positive_idx].detach().clone()
+        self.inst_features = instruction_embedding.detach().clone()
+        self.sub_features = sub_instruction_embedding.detach().clone()
 
         # Masked features
         # feature masks only catch the masked positions, without padding positions
@@ -1252,82 +1423,159 @@ class EENet(Net):
         inst_cls = seq_out[:, start_inst - 1, :]
         sub_cls = seq_out[:, start_sub - 1, :]
         rgb_out = seq_out[
-            positive_idx,
+            :,
             1 : self.rgb_len + 1,
         ]
         depth_out = seq_out[
-            positive_idx, self.rgb_len + 2 : self.rgb_len + self.depth_len + 2, :
+            :, self.rgb_len + 2 : self.rgb_len + self.depth_len + 2, :
         ]
-        inst_out = seq_out[positive_idx, start_inst : start_sub - 1, :]
-        sub_out = seq_out[positive_idx, start_sub:, :]
+        inst_out = seq_out[:, start_inst : start_sub - 1, :]
+        sub_out = seq_out[:, start_sub:, :]
 
-        # mask feature reconstruction, only positive samples are involved
-        feature_mask_rgb = feature_mask_rgb[positive_idx]
-        feature_mask_depth = feature_mask_depth[positive_idx]
-        rgb_rec = self.rgb_reconstruction(rgb_out[feature_mask_rgb])
-        depth_rec = self.depth_reconstruction(depth_out[feature_mask_depth])
-        loss_rec += F.mse_loss(rgb_rec, self.rgb_seq_features[feature_mask_rgb])
-        loss_rec += F.mse_loss(depth_rec, self.depth_seq_features[feature_mask_depth])
-        feature_mask_inst = feature_mask_inst[positive_idx]
-        feature_mask_sub = feature_mask_sub[positive_idx]
-        inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst])
-        sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub])
+        ## mask feature reconstruction, only positive samples are involved
+        rgb_rec = self.rgb_reconstruction(rgb_out)
+        depth_rec = self.depth_reconstruction(depth_out)
+        loss_rec += F.mse_loss(rgb_rec, self.rgb_seq_features)
+        loss_rec += F.mse_loss(depth_rec, self.depth_seq_features)
+
+        inst_rec = self.inst_reconstruction(inst_out)
+        sub_rec = self.sub_reconstruction(sub_out)
         loss_rec += (
-            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst]) / COEF_REC_INST
+            F.mse_loss(inst_rec, self.inst_features) / COEF_REC_INST
         )
-        loss_rec += F.mse_loss(sub_rec, self.sub_features[feature_mask_sub])
+        loss_rec += F.mse_loss(sub_rec, self.sub_features)
 
-        # mean feature reconstruction, only positive samples are involved
+        ## mean feature reconstruction, only positive samples are involved
         rgb_mean_gt = self.rgb_seq_features.mean(dim=1)
-        rgb_mean_rec = self.mean_rgb_reconstruction(rgb_cls[positive_idx])
+        rgb_mean_rec = self.mean_rgb_reconstruction(rgb_cls)
         loss_mean += F.mse_loss(rgb_mean_rec, rgb_mean_gt)
         depth_mean_gt = self.depth_seq_features.mean(dim=1)
-        depth_mean_rec = self.mean_depth_reconstruction(depth_cls[positive_idx])
+        depth_mean_rec = self.mean_depth_reconstruction(depth_cls)
         loss_mean += F.mse_loss(depth_mean_rec, depth_mean_gt)
         inst_mean_gt = self.inst_features.sum(dim=1) / (
-            (~(mask_inst[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            (~(mask_inst)).sum(dim=1, keepdim=True) + EPS
         )
-        inst_mean_rec = self.mean_inst_reconstruction(inst_cls[positive_idx])
+        inst_mean_rec = self.mean_inst_reconstruction(inst_cls)
         loss_mean += F.mse_loss(inst_mean_rec, inst_mean_gt)
         sub_mean_gt = self.sub_features.sum(dim=1) / (
-            (~(mask_sub[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            (~(mask_sub)).sum(dim=1, keepdim=True) + EPS
         )
-        sub_mean_rec = self.mean_sub_reconstruction(sub_cls[positive_idx])
+        sub_mean_rec = self.mean_sub_reconstruction(sub_cls)
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)
 
-        # inner alignment, all samples are involved
-        rgb_depth_cls = torch.cat([rgb_cls, depth_cls], dim=1)
-        align_pre_v = self.inner_alignment(rgb_depth_cls)
-        loss_inner += F.binary_cross_entropy(
-            torch.sigmoid(align_pre_v.squeeze()), inner_gt.float()
+        ## inner alignment, all samples are involved
+        bs = rgb_cls.shape[0]
+        rgb_cls = F.normalize(rgb_cls)
+        depth_cls = F.normalize(depth_cls)
+        logits = torch.matmul(rgb_cls, depth_cls.T) * torch.exp(
+            self.rgb_depth_temperature
         )
-        inst_sub_cls = torch.cat([inst_cls, sub_cls], dim=1)
-        align_pre_l = self.inner_alignment(inst_sub_cls)
-        loss_inner += F.binary_cross_entropy(
-            torch.sigmoid(align_pre_l.squeeze()), inner_gt.float()
-        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        loss_i2d = F.cross_entropy(logits, targets)
+        loss_d2i = F.cross_entropy(logits.T, targets)
+        loss_inner += ((loss_i2d + loss_d2i) / 2)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_v = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_v = torch.cat([targets, targets], dim=0)
 
-        # outer alignment, all samples are involved
-        rgb_depth_inst_sub_cls = torch.cat(
-            [rgb_cls, depth_cls, inst_cls, sub_cls], dim=1
+        bs = inst_cls.shape[0]
+        inst_cls = F.normalize(inst_cls)
+        sub_cls = F.normalize(sub_cls)
+        logits = torch.matmul(inst_cls, sub_cls.T) * torch.exp(
+            self.inst_sub_temperature
         )
-        align_pre = self.outer_alignment(rgb_depth_inst_sub_cls)
-        loss_outer += F.binary_cross_entropy(
-            torch.sigmoid(align_pre.squeeze()), outer_gt.float()
+        targets = torch.arange(bs).to(inst_cls.device)
+        loss_i2d = F.cross_entropy(logits, targets)
+        loss_d2i = F.cross_entropy(logits.T, targets)
+        loss_inner += ((loss_i2d + loss_d2i) / 2)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_l = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_l = torch.cat([targets, targets], dim=0)
+
+        ## outer alignment, all samples are involved
+        bs = rgb_cls.shape[0]
+        # rgb inst
+        logits = torch.matmul(rgb_cls, inst_cls.T) * torch.exp(
+            self.rgb_inst_temperature
         )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        loss_i2d = F.cross_entropy(logits, targets)
+        loss_d2i = F.cross_entropy(logits.T, targets)
+        loss_outer += ((loss_i2d + loss_d2i) / 2)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_ri = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_ri = torch.cat([targets, targets], dim=0)
+        # rgb sub
+        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(
+            self.rgb_sub_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        loss_i2d = F.cross_entropy(logits, targets)
+        loss_d2i = F.cross_entropy(logits.T, targets)
+        loss_outer += ((loss_i2d + loss_d2i) / 2)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_rs = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_rs = torch.cat([targets, targets], dim=0)
+        # depth inst
+        logits = torch.matmul(depth_cls, inst_cls.T) * torch.exp(
+            self.depth_inst_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        loss_i2d = F.cross_entropy(logits, targets)
+        loss_d2i = F.cross_entropy(logits.T, targets)
+        loss_outer += ((loss_i2d + loss_d2i) / 2)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_di = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_di = torch.cat([targets, targets], dim=0)
+        # depth sub
+        logits = torch.matmul(depth_cls, sub_cls.T) * torch.exp(
+            self.depth_sub_temperature
+        )
+        targets = torch.arange(bs).to(rgb_cls.device)
+        loss_i2d = F.cross_entropy(logits, targets)
+        loss_d2i = F.cross_entropy(logits.T, targets)
+        loss_outer += ((loss_i2d + loss_d2i) / 2)
+        i2d_prediction = logits.argmax(dim=1)
+        d2i_prediction = logits.argmax(dim=0)
+        predictions_ds = torch.cat([i2d_prediction, d2i_prediction], dim=0)
+        targets_ds = torch.cat([targets, targets], dim=0)
+
+        predictions_inner = torch.cat([predictions_v, predictions_l], dim=0)
+        targets_inner = torch.cat([targets_v, targets_l], dim=0)
+
+        predictions_outer = torch.cat([predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0)
+        targets_outer = torch.cat([targets_ri, targets_rs, targets_di, targets_ds], dim=0)
 
         return {
-            "loss_rec": loss_rec if positive_idx.sum() > 0 else 0,
-            "loss_mean": loss_mean if positive_idx.sum() > 0 else 0,
+            "loss_rec": loss_rec,
+            "loss_mean": loss_mean,
             "loss_inner": loss_inner,
             "loss_outer": loss_outer,
         }, {
-            "inner_gt_v": inner_gt,
-            "inner_pre_v": align_pre_v,
-            "inner_gt_l": inner_gt,
-            "inner_pre_l": align_pre_l,
-            "outer_gt": outer_gt,
-            "outer_pre": align_pre,
+            "inner_gt_v": targets_v,
+            "inner_pre_v": predictions_v,
+            "inner_gt_l": targets_l,
+            "inner_pre_l": predictions_l,
+            
+            "inner_gt": targets_inner,
+            "inner_pre": predictions_inner,
+
+            "outer_gt_ri": targets_ri,
+            "outer_pre_ri": predictions_ri,
+            "outer_gt_rs": targets_rs,
+            "outer_pre_rs": predictions_rs,
+            "outer_gt_di": targets_di,
+            "outer_pre_di": predictions_di,
+            "outer_gt_ds": targets_ds,
+            "outer_pre_ds": predictions_ds,
+
+            "outer_gt": targets_outer,
+            "outer_pre": predictions_outer,
         }
 
 

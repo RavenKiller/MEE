@@ -14,7 +14,8 @@ PRETRAIN:
   excludes: ["clip_encoder","depth_encoder"]
   STAGE0:
     lr: 1.0e-5
-    batch_size: 64
+    batch_size: 128
+    epochs: 3
     loss_weights: [1.0, 1.0]
 
 MODEL:
@@ -30,7 +31,7 @@ MODEL:
   EVOENC:
     rgb_len: 50
     layers: 4
-    inner_dropout: 0.1
+    inner_dropout: 0.0
   CLIP:
     downsample_size: 7
     trainable: False

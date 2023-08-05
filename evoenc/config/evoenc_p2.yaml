@@ -16,9 +16,9 @@ PRETRAIN:
   STAGE2:
     lr: 2.5e-5
     batch_size: 64
-    epochs: 10
+    epochs: 3
     loss_weights: [0.2, 0.2, 0.6, 1.0]
-    load_from_ckpt: True
+    load_from_ckpt: False
     ckpt_to_load: data/checkpoints/evoenc_p1/ckpt.EEPolicy.9.pth
 
 MODEL:
@@ -34,7 +34,7 @@ MODEL:
   EVOENC:
     rgb_len: 50
     layers: 4
-    inner_dropout: 0.1
+    inner_dropout: 0.0
   CLIP:
     downsample_size: 7
     trainable: False

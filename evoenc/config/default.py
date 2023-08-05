@@ -263,7 +263,7 @@ _C.PRETRAIN.STAGE0.warmup = 1000
 _C.PRETRAIN.STAGE0.batch_size = 32
 _C.PRETRAIN.STAGE0.loss_weights = [1.0, 1.0]
 _C.PRETRAIN.STAGE0.folder = (
-    "/hy-tmp/stage0"  # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
+    "/root/autodl-tmp/stage0"  # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
 )
 
 _C.PRETRAIN.STAGE1 = CN()
@@ -275,7 +275,7 @@ _C.PRETRAIN.STAGE1.warmup = 1000
 _C.PRETRAIN.STAGE1.batch_size = 32
 _C.PRETRAIN.STAGE1.loss_weights = [0.5, 0.5, 1.0]
 _C.PRETRAIN.STAGE1.folder = (
-    "/hy-tmp/stage1"  # must contains rgb_depth_large.mat, inst_sub_large.mat
+    "/root/autodl-tmp/stage1"  # must contains rgb_depth_large.mat, inst_sub_large.mat
 )
 _C.PRETRAIN.STAGE1.positive_ratio = 0.4
 
@@ -287,7 +287,7 @@ _C.PRETRAIN.STAGE2.lr = 1e-4
 _C.PRETRAIN.STAGE2.warmup = 1000
 _C.PRETRAIN.STAGE2.batch_size = 32
 _C.PRETRAIN.STAGE2.loss_weights = [0.4, 0.4, 1.0, 1.0]
-_C.PRETRAIN.STAGE2.folder = "/hy-tmp/stage2"  # must contains data.mat
+_C.PRETRAIN.STAGE2.folder = "/root/autodl-tmp/stage2"  # must contains data.mat
 _C.PRETRAIN.STAGE2.positive_ratio = 0.3
 _C.PRETRAIN.STAGE2.inner_ratio = 0.5
 
@@ -366,9 +366,9 @@ _C.MODEL.EVOENC.depth_len = 16
 _C.MODEL.EVOENC.dropout = 0.25
 _C.MODEL.EVOENC.inner_dropout = 0.0
 _C.MODEL.EVOENC.pre_ln = True
-_C.MODEL.EVOENC.pre_dropout = 0.25
+_C.MODEL.EVOENC.pre_dropout = 0.1
 _C.MODEL.EVOENC.post_ln = True
-_C.MODEL.EVOENC.post_dropout = 0.0
+_C.MODEL.EVOENC.post_dropout = 0.1
 _C.MODEL.EVOENC.aggregate = "add"  # cat or add
 _C.MODEL.EVOENC.freeze_weights = -1  # -1: not freeze;
 # 0: freeze layers before transformer
