@@ -289,7 +289,10 @@ _C.PRETRAIN.STAGE2.lr = 1e-4
 _C.PRETRAIN.STAGE2.warmup = 1000
 _C.PRETRAIN.STAGE2.batch_size = 32
 _C.PRETRAIN.STAGE2.loss_weights = [0.4, 0.4, 1.0, 1.0]
+<<<<<<< Updated upstream
 _C.PRETRAIN.STAGE2.train_frac = 0.9
+=======
+>>>>>>> Stashed changes
 _C.PRETRAIN.STAGE2.folder = "/root/autodl-tmp/stage2"  # must contains data.mat
 _C.PRETRAIN.STAGE2.positive_ratio = 0.3
 _C.PRETRAIN.STAGE2.inner_ratio = 0.5
@@ -371,13 +374,14 @@ _C.MODEL.EVOENC.inner_dropout = 0.0
 _C.MODEL.EVOENC.pre_ln = True
 _C.MODEL.EVOENC.pre_dropout = 0.1
 _C.MODEL.EVOENC.post_ln = True
-_C.MODEL.EVOENC.post_dropout = 0.1
-_C.MODEL.EVOENC.aggregate = "add"  # cat or add
+_C.MODEL.EVOENC.post_dropout = 0.0
+_C.MODEL.EVOENC.aggregate = "cat"  # cat or add
 _C.MODEL.EVOENC.freeze_weights = -1  # -1: not freeze;
 # 0: freeze layers before transformer
 # 1: freeze preLN
 # x>=1: freeze blcks[0:x]
-_C.MODEL.EVOENC.prev_action = False  # cat or add
+_C.MODEL.EVOENC.prev_action = True 
+_C.MODEL.EVOENC.post_fusion = True 
 
 _C.MODEL.BERT = CN()
 _C.MODEL.BERT.model_name = "bert-base-uncased"

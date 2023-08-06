@@ -220,12 +220,8 @@ class EENet(Net):
         else:
             dropout_ratio_rnn = model_config.STATE_ENCODER.dropout_ratio
 
-        # Init action embedding
         rnn_input_size = self._hidden_size
-        if model_config.EVOENC.prev_action:
-            self.prev_action_embedding = nn.Embedding(num_actions + 1, 32)
-            rnn_input_size += self.prev_action_embedding.embedding_dim
-
+        # Action decoder
         self.action_rgb_decoder = build_rnn_state_encoder(
             input_size=rnn_input_size,
             hidden_size=model_config.STATE_ENCODER.hidden_size,
@@ -254,17 +250,35 @@ class EENet(Net):
             num_layers=model_config.STATE_ENCODER.num_layers_action,
             dropout=dropout_ratio_rnn,
         )
-        self._num_recurrent_layers = self.action_rgb_decoder.num_recurrent_layers * 4
+        # Post fusion
+        # if self.model_config.EVOENC.post_fusion:
+        self.rgb_post = nn.MultiheadAttention(embed_dim=self._hidden_size, num_heads=8, batch_first=True)
+        self.depth_post = nn.MultiheadAttention(embed_dim=self._hidden_size, num_heads=8, batch_first=True)
+        self.inst_post = nn.MultiheadAttention(embed_dim=self._hidden_size, num_heads=8, batch_first=True)
+        self.sub_post = nn.MultiheadAttention(embed_dim=self._hidden_size, num_heads=8, batch_first=True)
+
+        self._num_recurrent_layers = self.action_rgb_decoder.num_recurrent_layers * 5
         self.s1 = self.action_rgb_decoder.num_recurrent_layers
         self.s2 = self.action_rgb_decoder.num_recurrent_layers * 2
         self.s3 = self.action_rgb_decoder.num_recurrent_layers * 3
         self.s4 = self.action_rgb_decoder.num_recurrent_layers * 4
+        self.s5 = self.action_rgb_decoder.num_recurrent_layers * 5
         input_size = self._hidden_size
-        # self.aggregate_ln = nn.LayerNorm(input_size)
         self.aggregate_ln = nn.LayerNorm(input_size)
         if self.model_config.EVOENC.aggregate == "cat":
-            self._output_size = self._hidden_size * 4
+            input_size = self._hidden_size * 4 * 2
             self.aggregate_ln = nn.Identity()
+        # Init action embedding
+        if model_config.EVOENC.prev_action:
+            self.prev_action_embedding = nn.Embedding(num_actions + 1, 32)
+            input_size += self.prev_action_embedding.embedding_dim
+        self.action_final_decoder = build_rnn_state_encoder(
+            input_size=input_size,
+            hidden_size=model_config.STATE_ENCODER.hidden_size,
+            rnn_type=model_config.STATE_ENCODER.rnn_type_action,
+            num_layers=model_config.STATE_ENCODER.num_layers_action,
+            dropout=dropout_ratio_rnn,
+        )
 
         self.rgb_features = None
         self.depth_features = None
@@ -557,11 +571,11 @@ class EENet(Net):
             :, self.rgb_len + self.depth_len + self.instruction_len + 3, :
         ].to(dtype=rnn_states.dtype)
 
-        if self.model_config.EVOENC.prev_action:
-            rgb_feature = torch.cat([rgb_feature, prev_actions], dim=1)
-            depth_feature = torch.cat([depth_feature, prev_actions], dim=1)
-            inst_feature = torch.cat([inst_feature, prev_actions], dim=1)
-            sub_feature = torch.cat([sub_feature, prev_actions], dim=1)
+        # if self.model_config.EVOENC.prev_action:
+        #     rgb_feature = torch.cat([rgb_feature, prev_actions], dim=1)
+        #     depth_feature = torch.cat([depth_feature, prev_actions], dim=1)
+        #     inst_feature = torch.cat([inst_feature, prev_actions], dim=1)
+        #     sub_feature = torch.cat([sub_feature, prev_actions], dim=1)
 
         # Decoder
         rnn_states_out = rnn_states.detach().clone()
@@ -585,14 +599,37 @@ class EENet(Net):
             rnn_states[:, self.s3 : self.s4],
             masks,
         )
+        
+        if self.model_config.EVOENC.post_fusion:
+            rgb_post_feature = self.rgb_post(rgb_feature.unsqueeze(1),rgb_embedding_seq,rgb_embedding_seq)[0].squeeze(1)
+            depth_post_feature = self.depth_post(depth_feature.unsqueeze(1),depth_embedding_seq,depth_embedding_seq)[0].squeeze(1)
+            tmp_mask = (instruction_embedding == 0).all(dim=2)
+            tmp_mask = tmp_mask.unsqueeze(1).unsqueeze(1).expand(-1, 8, -1, -1).flatten(start_dim=0, end_dim=1)
+            inst_post_feature = self.inst_post(inst_feature.unsqueeze(1),instruction_embedding,instruction_embedding,attn_mask=tmp_mask)[0].squeeze(1)
+            tmp_mask = (sub_instruction_embedding == 0).all(dim=2)
+            tmp_mask = tmp_mask.unsqueeze(1).unsqueeze(1).expand(-1, 8, -1, -1).flatten(start_dim=0, end_dim=1)
+            sub_post_feature = self.sub_post(sub_feature.unsqueeze(1),sub_instruction_embedding,sub_instruction_embedding,attn_mask=tmp_mask)[0].squeeze(1)
+            
+            rgb_feature = torch.cat([rgb_feature, rgb_post_feature], dim=1)
+            depth_feature = torch.cat([depth_feature, depth_post_feature], dim=1)
+            inst_feature = torch.cat([inst_feature, inst_post_feature], dim=1)
+            sub_feature = torch.cat([sub_feature, sub_post_feature], dim=1)
+
         if self.model_config.EVOENC.aggregate == "cat":
             total_feature = torch.cat(
                 [rgb_feature, depth_feature, inst_feature, sub_feature], dim=1
             )
             total_feature = self.aggregate_ln(total_feature)
-        elif self.model_config.EVOENC.aggregate == "add":
-            total_feature = rgb_feature + depth_feature + inst_feature + sub_feature
-            total_feature = self.aggregate_ln(total_feature)
+        if self.model_config.EVOENC.prev_action:
+            total_feature = torch.cat(
+                [total_feature, prev_actions], dim=1
+            )
+        total_feature, rnn_states_out[:, self.s4 : self.s5] = self.action_final_decoder(
+            total_feature,
+            rnn_states[:, self.s4 : self.s5],
+            masks,
+        )
+
         x = total_feature
 
         # AuxLosses

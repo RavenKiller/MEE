@@ -24,7 +24,7 @@ IL:
       data/datasets/R2R_VLNCE_NRSub_T/{split}/{split}_gt.json.gz
   load_from_ckpt: True
   load_from_pretrain: True
-  ckpt_to_load: data/checkpoints/evoenc_p0/ckpt.EEPolicy.4.pth
+  ckpt_to_load: data/checkpoints/evoenc_p0/ckpt.EEPolicy.2.pth
   
   DAGGER:
     iterations: 10
