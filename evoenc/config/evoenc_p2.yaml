@@ -14,12 +14,12 @@ PRETRAIN:
   excludes: ["clip_encoder","depth_encoder"]
   # ,"rgb_reconstruction","depth_reconstruction","inst_reconstruction","sub_reconstruction","mean_rgb_reconstruction","mean_depth_reconstruction","mean_inst_reconstruction","mean_sub_reconstruction","inner_alignment","outer_alignment"
   STAGE2:
-    lr: 2.5e-5
+    lr: 1.0e-4
     batch_size: 64
     epochs: 3
-    loss_weights: [0.2, 0.2, 0.6, 1.0]
-    load_from_ckpt: False
-    ckpt_to_load: data/checkpoints/evoenc_p1/ckpt.EEPolicy.9.pth
+    loss_weights: [0.25, 0.125, 0.5, 1.0]
+    load_from_ckpt: True
+    ckpt_to_load: data/checkpoints/evoenc_p1/ckpt.EEPolicy.2.pth
 
 MODEL:
   policy_name: EEPolicy

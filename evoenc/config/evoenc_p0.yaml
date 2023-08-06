@@ -13,7 +13,7 @@ PRETRAIN:
   stage: STAGE0
   excludes: ["clip_encoder","depth_encoder"]
   STAGE0:
-    lr: 1.0e-5
+    lr: 1.0e-4
     batch_size: 128
     epochs: 3
     loss_weights: [1.0, 0.5]

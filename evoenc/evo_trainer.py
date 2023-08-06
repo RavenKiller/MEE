@@ -314,7 +314,8 @@ class PreTrainer(BaseVLNCETrainer):
             self._train_stage1()
         elif self.config.PRETRAIN.stage == "STAGE2":
             self._train_stage2()
-
+    def _post_step(self):
+        self.policy.net._clamp_temperature()
     def _train_stage0(self):
         dataset = Stage0Dataset(
             folder=self.stage_config.folder,
@@ -358,6 +359,7 @@ class PreTrainer(BaseVLNCETrainer):
                         self.policy.parameters(), self.max_grad_norm
                     )
                 self.optimizer.step()
+                self._post_step()
 
                 batch_bar.set_description(f"E {epoch}.")
                 batch_bar.set_postfix(
@@ -420,6 +422,7 @@ class PreTrainer(BaseVLNCETrainer):
                         self.policy.parameters(), self.max_grad_norm
                     )
                 self.optimizer.step()
+                self._post_step()
 
                 batch_bar.set_description(f"E {epoch}.")
                 batch_bar.set_postfix(
@@ -483,6 +486,7 @@ class PreTrainer(BaseVLNCETrainer):
                         self.policy.parameters(), self.max_grad_norm
                     )
                 self.optimizer.step()
+                self._post_step()
 
                 batch_bar.set_description(f"E {epoch}.")
                 batch_bar.set_postfix(
@@ -587,7 +591,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=64,
+            batch_size=256,
             shuffle=True,
             num_workers=4,
             # pin_memory=True
@@ -602,9 +606,9 @@ class PreTrainer(BaseVLNCETrainer):
             self.config.RESULTS_DIR,
             f"stats_ckpt_{checkpoint_index}_stage0.json",
         )
-        if os.path.exists(fname):
-            logger.info("skipping -- evaluation exists.")
-            return
+        # if os.path.exists(fname):
+        #     logger.info("skipping -- evaluation exists.")
+        #     return
         losses = {}
         gts = {}
         pres = {}
@@ -651,7 +655,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=64,
+            batch_size=256,
             shuffle=True,
             num_workers=4,
             # pin_memory=True
@@ -666,9 +670,9 @@ class PreTrainer(BaseVLNCETrainer):
             self.config.RESULTS_DIR,
             f"stats_ckpt_{checkpoint_index}_stage1.json",
         )
-        if os.path.exists(fname):
-            logger.info("skipping -- evaluation exists.")
-            return
+        # if os.path.exists(fname):
+        #     logger.info("skipping -- evaluation exists.")
+        #     return
         losses = {}
         gts = {}
         pres = {}
@@ -716,7 +720,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=self.stage_config.batch_size,
+            batch_size=256,
             shuffle=True,
             num_workers=6,
             # pin_memory=True
@@ -731,9 +735,9 @@ class PreTrainer(BaseVLNCETrainer):
             self.config.RESULTS_DIR,
             f"stats_ckpt_{checkpoint_index}_stage2.json",
         )
-        if os.path.exists(fname):
-            logger.info("skipping -- evaluation exists.")
-            return
+        # if os.path.exists(fname):
+        #     logger.info("skipping -- evaluation exists.")
+        #     return
         losses = {}
         gts = {}
         pres = {}

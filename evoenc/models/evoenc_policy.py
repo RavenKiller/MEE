@@ -331,7 +331,7 @@ class EENet(Net):
             # noise detection
             # self.noise_detection = nn.Linear(self._hidden_size, 1)
         # temperatures
-        self.rgb_depth_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
+        self.rgb_depth_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=False)
         self.inst_sub_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
         self.rgb_inst_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
         self.rgb_sub_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
@@ -406,7 +406,13 @@ class EENet(Net):
         # nn.init.normal_(self.depth_fc[0].weight, std=self._hidden_size ** -0.5)
         # nn.init.normal_(self.inst_fc[0].weight, std=self._hidden_size ** -0.5)
         # nn.init.normal_(self.sub_fc[0].weight, std=self._hidden_size ** -0.5)
-
+    def _clamp_temperature(self):
+        torch.clamp(self.rgb_depth_temperature, min=0.0, max=1.0)
+        torch.clamp(self.rgb_inst_temperature, min=0.0, max=1.0)
+        torch.clamp(self.rgb_sub_temperature, min=0.0, max=1.0)
+        torch.clamp(self.depth_inst_temperature, min=0.0, max=1.0)
+        torch.clamp(self.depth_sub_temperature, min=0.0, max=1.0)
+        torch.clamp(self.inst_sub_temperature, min=0.0, max=1.0)
     def _t_forward(self, seq_embedding, attn_mask=None):
         ## Transformer
         if self.model_config.EVOENC.pre_ln:
