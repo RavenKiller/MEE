@@ -252,10 +252,18 @@ class EENet(Net):
         )
         # Post fusion
         # if self.model_config.EVOENC.post_fusion:
-        self.rgb_post = nn.MultiheadAttention(embed_dim=self._hidden_size, num_heads=8, batch_first=True)
-        self.depth_post = nn.MultiheadAttention(embed_dim=self._hidden_size, num_heads=8, batch_first=True)
-        self.inst_post = nn.MultiheadAttention(embed_dim=self._hidden_size, num_heads=8, batch_first=True)
-        self.sub_post = nn.MultiheadAttention(embed_dim=self._hidden_size, num_heads=8, batch_first=True)
+        self.rgb_post = nn.MultiheadAttention(
+            embed_dim=self._hidden_size, num_heads=8, batch_first=True
+        )
+        self.depth_post = nn.MultiheadAttention(
+            embed_dim=self._hidden_size, num_heads=8, batch_first=True
+        )
+        self.inst_post = nn.MultiheadAttention(
+            embed_dim=self._hidden_size, num_heads=8, batch_first=True
+        )
+        self.sub_post = nn.MultiheadAttention(
+            embed_dim=self._hidden_size, num_heads=8, batch_first=True
+        )
 
         self._num_recurrent_layers = self.action_rgb_decoder.num_recurrent_layers * 5
         self.s1 = self.action_rgb_decoder.num_recurrent_layers
@@ -331,12 +339,24 @@ class EENet(Net):
             # noise detection
             # self.noise_detection = nn.Linear(self._hidden_size, 1)
         # temperatures
-        self.rgb_depth_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=False)
-        self.inst_sub_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
-        self.rgb_inst_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
-        self.rgb_sub_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
-        self.depth_inst_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
-        self.depth_sub_temperature = torch.nn.Parameter(torch.tensor([0.07]), requires_grad=True)
+        self.rgb_depth_temperature = torch.nn.Parameter(
+            torch.tensor([0.07]), requires_grad=False
+        )
+        self.inst_sub_temperature = torch.nn.Parameter(
+            torch.tensor([0.07]), requires_grad=True
+        )
+        self.rgb_inst_temperature = torch.nn.Parameter(
+            torch.tensor([0.07]), requires_grad=True
+        )
+        self.rgb_sub_temperature = torch.nn.Parameter(
+            torch.tensor([0.07]), requires_grad=True
+        )
+        self.depth_inst_temperature = torch.nn.Parameter(
+            torch.tensor([0.07]), requires_grad=True
+        )
+        self.depth_sub_temperature = torch.nn.Parameter(
+            torch.tensor([0.07]), requires_grad=True
+        )
 
         if model_config.EVOENC.freeze_weights >= 0:
             level = model_config.EVOENC.freeze_weights
@@ -406,6 +426,7 @@ class EENet(Net):
         # nn.init.normal_(self.depth_fc[0].weight, std=self._hidden_size ** -0.5)
         # nn.init.normal_(self.inst_fc[0].weight, std=self._hidden_size ** -0.5)
         # nn.init.normal_(self.sub_fc[0].weight, std=self._hidden_size ** -0.5)
+
     def _clamp_temperature(self):
         torch.clamp(self.rgb_depth_temperature, min=0.0, max=1.0)
         torch.clamp(self.rgb_inst_temperature, min=0.0, max=1.0)
@@ -413,6 +434,7 @@ class EENet(Net):
         torch.clamp(self.depth_inst_temperature, min=0.0, max=1.0)
         torch.clamp(self.depth_sub_temperature, min=0.0, max=1.0)
         torch.clamp(self.inst_sub_temperature, min=0.0, max=1.0)
+
     def _t_forward(self, seq_embedding, attn_mask=None):
         ## Transformer
         if self.model_config.EVOENC.pre_ln:
@@ -605,17 +627,41 @@ class EENet(Net):
             rnn_states[:, self.s3 : self.s4],
             masks,
         )
-        
+
         if self.model_config.EVOENC.post_fusion:
-            rgb_post_feature = self.rgb_post(rgb_feature.unsqueeze(1),rgb_embedding_seq,rgb_embedding_seq)[0].squeeze(1)
-            depth_post_feature = self.depth_post(depth_feature.unsqueeze(1),depth_embedding_seq,depth_embedding_seq)[0].squeeze(1)
+            rgb_post_feature = self.rgb_post(
+                rgb_feature.unsqueeze(1), rgb_embedding_seq, rgb_embedding_seq
+            )[0].squeeze(1)
+            depth_post_feature = self.depth_post(
+                depth_feature.unsqueeze(1), depth_embedding_seq, depth_embedding_seq
+            )[0].squeeze(1)
             tmp_mask = (instruction_embedding == 0).all(dim=2)
-            tmp_mask = tmp_mask.unsqueeze(1).unsqueeze(1).expand(-1, 8, -1, -1).flatten(start_dim=0, end_dim=1)
-            inst_post_feature = self.inst_post(inst_feature.unsqueeze(1),instruction_embedding,instruction_embedding,attn_mask=tmp_mask)[0].squeeze(1)
+            tmp_mask = (
+                tmp_mask.unsqueeze(1)
+                .unsqueeze(1)
+                .expand(-1, 8, -1, -1)
+                .flatten(start_dim=0, end_dim=1)
+            )
+            inst_post_feature = self.inst_post(
+                inst_feature.unsqueeze(1),
+                instruction_embedding,
+                instruction_embedding,
+                attn_mask=tmp_mask,
+            )[0].squeeze(1)
             tmp_mask = (sub_instruction_embedding == 0).all(dim=2)
-            tmp_mask = tmp_mask.unsqueeze(1).unsqueeze(1).expand(-1, 8, -1, -1).flatten(start_dim=0, end_dim=1)
-            sub_post_feature = self.sub_post(sub_feature.unsqueeze(1),sub_instruction_embedding,sub_instruction_embedding,attn_mask=tmp_mask)[0].squeeze(1)
-            
+            tmp_mask = (
+                tmp_mask.unsqueeze(1)
+                .unsqueeze(1)
+                .expand(-1, 8, -1, -1)
+                .flatten(start_dim=0, end_dim=1)
+            )
+            sub_post_feature = self.sub_post(
+                sub_feature.unsqueeze(1),
+                sub_instruction_embedding,
+                sub_instruction_embedding,
+                attn_mask=tmp_mask,
+            )[0].squeeze(1)
+
             rgb_feature = torch.cat([rgb_feature, rgb_post_feature], dim=1)
             depth_feature = torch.cat([depth_feature, depth_post_feature], dim=1)
             inst_feature = torch.cat([inst_feature, inst_post_feature], dim=1)
@@ -627,9 +673,7 @@ class EENet(Net):
             )
             total_feature = self.aggregate_ln(total_feature)
         if self.model_config.EVOENC.prev_action:
-            total_feature = torch.cat(
-                [total_feature, prev_actions], dim=1
-            )
+            total_feature = torch.cat([total_feature, prev_actions], dim=1)
         total_feature, rnn_states_out[:, self.s4 : self.s5] = self.action_final_decoder(
             total_feature,
             rnn_states[:, self.s4 : self.s5],
@@ -929,7 +973,6 @@ class EENet(Net):
         sub_mean_rec = self.mean_sub_reconstruction(sub_cls)
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)
 
-        
         ## ONLY FOR EVALUATION inner alignment, all samples are involved
         bs = rgb_cls.shape[0]
         rgb_cls = F.normalize(rgb_cls)
@@ -967,9 +1010,7 @@ class EENet(Net):
         predictions_ri = torch.cat([i2d_prediction, d2i_prediction], dim=0)
         targets_ri = torch.cat([targets, targets], dim=0)
         # rgb sub
-        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(
-            self.rgb_sub_temperature
-        )
+        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(self.rgb_sub_temperature)
         targets = torch.arange(bs).to(rgb_cls.device)
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
@@ -997,8 +1038,12 @@ class EENet(Net):
         predictions_inner = torch.cat([predictions_v, predictions_l], dim=0)
         targets_inner = torch.cat([targets_v, targets_l], dim=0)
 
-        predictions_outer = torch.cat([predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0)
-        targets_outer = torch.cat([targets_ri, targets_rs, targets_di, targets_ds], dim=0)
+        predictions_outer = torch.cat(
+            [predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0
+        )
+        targets_outer = torch.cat(
+            [targets_ri, targets_rs, targets_di, targets_ds], dim=0
+        )
 
         return {
             "loss_rec": loss_rec,
@@ -1008,10 +1053,8 @@ class EENet(Net):
             "inner_pre_v": predictions_v,
             "inner_gt_l": targets_l,
             "inner_pre_l": predictions_l,
-            
             "inner_gt": targets_inner,
             "inner_pre": predictions_inner,
-
             "outer_gt_ri": targets_ri,
             "outer_pre_ri": predictions_ri,
             "outer_gt_rs": targets_rs,
@@ -1020,7 +1063,6 @@ class EENet(Net):
             "outer_pre_di": predictions_di,
             "outer_gt_ds": targets_ds,
             "outer_pre_ds": predictions_ds,
-
             "outer_gt": targets_outer,
             "outer_pre": predictions_outer,
         }
@@ -1145,7 +1187,7 @@ class EENet(Net):
         targets = torch.arange(bs).to(rgb_cls.device)
         loss_i2d = F.cross_entropy(logits, targets)
         loss_d2i = F.cross_entropy(logits.T, targets)
-        loss_inner += ((loss_i2d + loss_d2i) / 2)
+        loss_inner += (loss_i2d + loss_d2i) / 2
 
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
@@ -1208,9 +1250,7 @@ class EENet(Net):
         # mask feature reconstruction, only positive samples are involved
         inst_rec = self.inst_reconstruction(inst_out)
         sub_rec = self.sub_reconstruction(sub_out)
-        loss_rec += (
-            F.mse_loss(inst_rec, self.inst_features) / COEF_REC_INST
-        )
+        loss_rec += F.mse_loss(inst_rec, self.inst_features) / COEF_REC_INST
         loss_rec += F.mse_loss(sub_rec, self.sub_features)
         # mean feature reconstruction
         inst_mean_gt = self.inst_features.sum(dim=1) / (
@@ -1233,14 +1273,13 @@ class EENet(Net):
         targets = torch.arange(bs).to(inst_cls.device)
         loss_i2d = F.cross_entropy(logits, targets)
         loss_d2i = F.cross_entropy(logits.T, targets)
-        loss_inner += ((loss_i2d + loss_d2i) / 2)
-        
+        loss_inner += (loss_i2d + loss_d2i) / 2
+
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
         predictions_l = torch.cat([i2d_prediction, d2i_prediction], dim=0)
         targets_l = torch.cat([targets, targets], dim=0)
 
-        
         ## only for evaluation outer alignment, all samples are involved
         bs = rgb_cls.shape[0]
         # rgb inst
@@ -1253,9 +1292,7 @@ class EENet(Net):
         predictions_ri = torch.cat([i2d_prediction, d2i_prediction], dim=0)
         targets_ri = torch.cat([targets, targets], dim=0)
         # rgb sub
-        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(
-            self.rgb_sub_temperature
-        )
+        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(self.rgb_sub_temperature)
         targets = torch.arange(bs).to(rgb_cls.device)
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
@@ -1283,8 +1320,12 @@ class EENet(Net):
         predictions_inner = torch.cat([predictions_v, predictions_l], dim=0)
         targets_inner = torch.cat([targets_v, targets_l], dim=0)
 
-        predictions_outer = torch.cat([predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0)
-        targets_outer = torch.cat([targets_ri, targets_rs, targets_di, targets_ds], dim=0)
+        predictions_outer = torch.cat(
+            [predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0
+        )
+        targets_outer = torch.cat(
+            [targets_ri, targets_rs, targets_di, targets_ds], dim=0
+        )
 
         return {
             "loss_rec": loss_rec,
@@ -1295,10 +1336,8 @@ class EENet(Net):
             "inner_pre_v": predictions_v,
             "inner_gt_l": targets_l,
             "inner_pre_l": predictions_l,
-            
             "inner_gt": targets_inner,
             "inner_pre": predictions_inner,
-
             "outer_gt_ri": targets_ri,
             "outer_pre_ri": predictions_ri,
             "outer_gt_rs": targets_rs,
@@ -1307,7 +1346,6 @@ class EENet(Net):
             "outer_pre_di": predictions_di,
             "outer_gt_ds": targets_ds,
             "outer_pre_ds": predictions_ds,
-
             "outer_gt": targets_outer,
             "outer_pre": predictions_outer,
         }
@@ -1469,9 +1507,7 @@ class EENet(Net):
             :,
             1 : self.rgb_len + 1,
         ]
-        depth_out = seq_out[
-            :, self.rgb_len + 2 : self.rgb_len + self.depth_len + 2, :
-        ]
+        depth_out = seq_out[:, self.rgb_len + 2 : self.rgb_len + self.depth_len + 2, :]
         inst_out = seq_out[:, start_inst : start_sub - 1, :]
         sub_out = seq_out[:, start_sub:, :]
 
@@ -1483,9 +1519,7 @@ class EENet(Net):
 
         inst_rec = self.inst_reconstruction(inst_out)
         sub_rec = self.sub_reconstruction(sub_out)
-        loss_rec += (
-            F.mse_loss(inst_rec, self.inst_features) / COEF_REC_INST
-        )
+        loss_rec += F.mse_loss(inst_rec, self.inst_features) / COEF_REC_INST
         loss_rec += F.mse_loss(sub_rec, self.sub_features)
 
         ## mean feature reconstruction, only positive samples are involved
@@ -1516,7 +1550,7 @@ class EENet(Net):
         targets = torch.arange(bs).to(rgb_cls.device)
         loss_i2d = F.cross_entropy(logits, targets)
         loss_d2i = F.cross_entropy(logits.T, targets)
-        loss_inner += ((loss_i2d + loss_d2i) / 2)
+        loss_inner += (loss_i2d + loss_d2i) / 2
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
         predictions_v = torch.cat([i2d_prediction, d2i_prediction], dim=0)
@@ -1531,7 +1565,7 @@ class EENet(Net):
         targets = torch.arange(bs).to(inst_cls.device)
         loss_i2d = F.cross_entropy(logits, targets)
         loss_d2i = F.cross_entropy(logits.T, targets)
-        loss_inner += ((loss_i2d + loss_d2i) / 2)
+        loss_inner += (loss_i2d + loss_d2i) / 2
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
         predictions_l = torch.cat([i2d_prediction, d2i_prediction], dim=0)
@@ -1546,19 +1580,17 @@ class EENet(Net):
         targets = torch.arange(bs).to(rgb_cls.device)
         loss_i2d = F.cross_entropy(logits, targets)
         loss_d2i = F.cross_entropy(logits.T, targets)
-        loss_outer += ((loss_i2d + loss_d2i) / 2)
+        loss_outer += (loss_i2d + loss_d2i) / 2
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
         predictions_ri = torch.cat([i2d_prediction, d2i_prediction], dim=0)
         targets_ri = torch.cat([targets, targets], dim=0)
         # rgb sub
-        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(
-            self.rgb_sub_temperature
-        )
+        logits = torch.matmul(rgb_cls, sub_cls.T) * torch.exp(self.rgb_sub_temperature)
         targets = torch.arange(bs).to(rgb_cls.device)
         loss_i2d = F.cross_entropy(logits, targets)
         loss_d2i = F.cross_entropy(logits.T, targets)
-        loss_outer += ((loss_i2d + loss_d2i) / 2)
+        loss_outer += (loss_i2d + loss_d2i) / 2
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
         predictions_rs = torch.cat([i2d_prediction, d2i_prediction], dim=0)
@@ -1570,7 +1602,7 @@ class EENet(Net):
         targets = torch.arange(bs).to(rgb_cls.device)
         loss_i2d = F.cross_entropy(logits, targets)
         loss_d2i = F.cross_entropy(logits.T, targets)
-        loss_outer += ((loss_i2d + loss_d2i) / 2)
+        loss_outer += (loss_i2d + loss_d2i) / 2
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
         predictions_di = torch.cat([i2d_prediction, d2i_prediction], dim=0)
@@ -1582,7 +1614,7 @@ class EENet(Net):
         targets = torch.arange(bs).to(rgb_cls.device)
         loss_i2d = F.cross_entropy(logits, targets)
         loss_d2i = F.cross_entropy(logits.T, targets)
-        loss_outer += ((loss_i2d + loss_d2i) / 2)
+        loss_outer += (loss_i2d + loss_d2i) / 2
         i2d_prediction = logits.argmax(dim=1)
         d2i_prediction = logits.argmax(dim=0)
         predictions_ds = torch.cat([i2d_prediction, d2i_prediction], dim=0)
@@ -1591,8 +1623,12 @@ class EENet(Net):
         predictions_inner = torch.cat([predictions_v, predictions_l], dim=0)
         targets_inner = torch.cat([targets_v, targets_l], dim=0)
 
-        predictions_outer = torch.cat([predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0)
-        targets_outer = torch.cat([targets_ri, targets_rs, targets_di, targets_ds], dim=0)
+        predictions_outer = torch.cat(
+            [predictions_ri, predictions_rs, predictions_di, predictions_ds], dim=0
+        )
+        targets_outer = torch.cat(
+            [targets_ri, targets_rs, targets_di, targets_ds], dim=0
+        )
 
         return {
             "loss_rec": loss_rec,
@@ -1604,10 +1640,8 @@ class EENet(Net):
             "inner_pre_v": predictions_v,
             "inner_gt_l": targets_l,
             "inner_pre_l": predictions_l,
-            
             "inner_gt": targets_inner,
             "inner_pre": predictions_inner,
-
             "outer_gt_ri": targets_ri,
             "outer_pre_ri": predictions_ri,
             "outer_gt_rs": targets_rs,
@@ -1616,7 +1650,6 @@ class EENet(Net):
             "outer_pre_di": predictions_di,
             "outer_gt_ds": targets_ds,
             "outer_pre_ds": predictions_ds,
-
             "outer_gt": targets_outer,
             "outer_pre": predictions_outer,
         }
