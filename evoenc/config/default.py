@@ -262,7 +262,7 @@ _C.PRETRAIN.STAGE0.lr = 1e-4
 _C.PRETRAIN.STAGE0.warmup = 1000
 _C.PRETRAIN.STAGE0.batch_size = 32
 _C.PRETRAIN.STAGE0.loss_weights = [1.0, 1.0]
-_C.PRETRAIN.STAGE0.train_frac = 0.8
+_C.PRETRAIN.STAGE0.train_frac = 1.0
 _C.PRETRAIN.STAGE0.folder = (
     "/root/autodl-tmp/stage0"  # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
 )
@@ -275,7 +275,7 @@ _C.PRETRAIN.STAGE1.lr = 1e-4
 _C.PRETRAIN.STAGE1.warmup = 1000
 _C.PRETRAIN.STAGE1.batch_size = 32
 _C.PRETRAIN.STAGE1.loss_weights = [0.5, 0.5, 1.0]
-_C.PRETRAIN.STAGE1.train_frac = 0.8
+_C.PRETRAIN.STAGE1.train_frac = 1.0
 _C.PRETRAIN.STAGE1.folder = (
     "/root/autodl-tmp/stage1"  # must contains rgb_depth_large.mat, inst_sub_large.mat
 )
@@ -289,7 +289,7 @@ _C.PRETRAIN.STAGE2.lr = 1e-4
 _C.PRETRAIN.STAGE2.warmup = 1000
 _C.PRETRAIN.STAGE2.batch_size = 32
 _C.PRETRAIN.STAGE2.loss_weights = [0.4, 0.4, 1.0, 1.0]
-_C.PRETRAIN.STAGE2.train_frac = 0.8
+_C.PRETRAIN.STAGE2.train_frac = 1.0
 _C.PRETRAIN.STAGE2.folder = "/root/autodl-tmp/stage2"  # must contains data.mat
 _C.PRETRAIN.STAGE2.positive_ratio = 0.3
 _C.PRETRAIN.STAGE2.inner_ratio = 0.5

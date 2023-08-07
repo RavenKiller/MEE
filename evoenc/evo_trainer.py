@@ -577,18 +577,40 @@ class PreTrainer(BaseVLNCETrainer):
         self.policy.net.eval()
 
         if self.config.PRETRAIN.stage == "STAGE0":
-            self._eval_stage0(checkpoint_index)
+            self._eval_stage0(checkpoint_index,eval_stage="stage0")
+            self._eval_stage0(checkpoint_index,eval_stage="stage1")
+            self._eval_stage0(checkpoint_index,eval_stage="stage2")
         elif self.config.PRETRAIN.stage == "STAGE1":
-            self._eval_stage1(checkpoint_index)
+            self._eval_stage1(checkpoint_index,eval_stage="stage0")
+            self._eval_stage1(checkpoint_index,eval_stage="stage1")
+            self._eval_stage1(checkpoint_index,eval_stage="stage2")
         elif self.config.PRETRAIN.stage == "STAGE2":
-            self._eval_stage2(checkpoint_index)
+            self._eval_stage2(checkpoint_index,eval_stage="stage0")
+            self._eval_stage2(checkpoint_index,eval_stage="stage1")
+            self._eval_stage2(checkpoint_index,eval_stage="stage2")
 
-    def _eval_stage0(self, checkpoint_index):
-        dataset = Stage0Dataset(
-            folder=self.stage_config.folder,
-            train_frac=self.stage_config.train_frac,
-            mode="eval",
-        )
+    def _eval_stage0(self, checkpoint_index, eval_stage="stage0"):
+        if eval_stage=="stage0":
+            self.stage_config = self.config.PRETRAIN.STAGE0
+            dataset = Stage0Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
+        elif eval_stage=="stage1":
+            self.stage_config = self.config.PRETRAIN.STAGE1
+            dataset = Stage1Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
+        elif eval_stage=="stage2":
+            self.stage_config = self.config.PRETRAIN.STAGE2
+            dataset = Stage2Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=256,
@@ -604,7 +626,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         fname = os.path.join(
             self.config.RESULTS_DIR,
-            f"stats_ckpt_{checkpoint_index}_stage0.json",
+            f"stage0_ckpt_{checkpoint_index}_eval_{eval_stage}.json",
         )
         # if os.path.exists(fname):
         #     logger.info("skipping -- evaluation exists.")
@@ -647,12 +669,28 @@ class PreTrainer(BaseVLNCETrainer):
         print(metrics)
         with open(fname, "w") as f:
             json.dump(metrics, f, indent=4)
-    def _eval_stage1(self, checkpoint_index):
-        dataset = Stage1Dataset(
-            folder=self.stage_config.folder,
-            train_frac=self.stage_config.train_frac,
-            mode="eval",
-        )
+    def _eval_stage1(self, checkpoint_index, eval_stage="stage2"):
+        if eval_stage=="stage0":
+            self.stage_config = self.config.PRETRAIN.STAGE0
+            dataset = Stage0Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
+        elif eval_stage=="stage1":
+            self.stage_config = self.config.PRETRAIN.STAGE1
+            dataset = Stage1Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
+        elif eval_stage=="stage2":
+            self.stage_config = self.config.PRETRAIN.STAGE2
+            dataset = Stage2Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=256,
@@ -668,7 +706,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         fname = os.path.join(
             self.config.RESULTS_DIR,
-            f"stats_ckpt_{checkpoint_index}_stage1.json",
+            f"stage1_ckpt_{checkpoint_index}_eval_{eval_stage}.json",
         )
         # if os.path.exists(fname):
         #     logger.info("skipping -- evaluation exists.")
@@ -712,12 +750,28 @@ class PreTrainer(BaseVLNCETrainer):
         with open(fname, "w") as f:
             json.dump(metrics, f, indent=4)
 
-    def _eval_stage2(self, checkpoint_index):
-        dataset = Stage2Dataset(
-            folder=self.stage_config.folder,
-            train_frac=self.stage_config.train_frac,
-            mode="eval",
-        )
+    def _eval_stage2(self, checkpoint_index, eval_stage="stage2"):
+        if eval_stage=="stage0":
+            self.stage_config = self.config.PRETRAIN.STAGE0
+            dataset = Stage0Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
+        elif eval_stage=="stage1":
+            self.stage_config = self.config.PRETRAIN.STAGE1
+            dataset = Stage1Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
+        elif eval_stage=="stage2":
+            self.stage_config = self.config.PRETRAIN.STAGE2
+            dataset = Stage2Dataset(
+                folder=self.stage_config.folder,
+                train_frac=self.stage_config.train_frac,
+                mode="eval",
+            )
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=256,
@@ -733,7 +787,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         fname = os.path.join(
             self.config.RESULTS_DIR,
-            f"stats_ckpt_{checkpoint_index}_stage2.json",
+            f"stage2_ckpt_{checkpoint_index}_eval_{eval_stage}.json",
         )
         # if os.path.exists(fname):
         #     logger.info("skipping -- evaluation exists.")
