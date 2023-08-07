@@ -14,6 +14,7 @@ from torcheval.metrics.functional import multiclass_f1_score
 import json
 import tqdm
 import ast
+import gym
 from torch.utils.tensorboard import SummaryWriter
 from habitat import logger
 from habitat_baselines.common.baseline_registry import baseline_registry
@@ -33,22 +34,32 @@ from evoenc.common.base_il_trainer import BaseVLNCETrainer
 from evoenc.common.env_utils import construct_envs
 from evoenc.common.utils import extract_instruction_tokens
 
+## fake spaces to skip GL error
+from dataclasses import dataclass
+
 sys.path.append("/root/MLA")
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     import tensorflow as tf  # noqa: F401
 
-## fake spaces to skip GL error
-from dataclasses import dataclass
-import gym
+
 @dataclass
 class ActionSpace:
     """Class for keeping track of an item in inventory."""
+
     n: str = 4
+
+
 class ObservationSpace:
     """Class for keeping track of an item in inventory."""
-    def __init__(self): 
-        self.spaces = {"depth": gym.spaces.Box(low=-1.0, high=2.0, shape=(256, 256, 1), dtype=np.float32)}
+
+    def __init__(self):
+        self.spaces = {
+            "depth": gym.spaces.Box(
+                low=-1.0, high=2.0, shape=(256, 256, 1), dtype=np.float32
+            )
+        }
+
 
 RAND_MIN = 25
 RAND_MAX = 100000
@@ -70,36 +81,40 @@ class Stage0Dataset(torch.utils.data.Dataset):
         self.instructions = self.inst_handler["instructions"]
         self.sub_handler = h5py.File(os.path.join(folder, "sub.mat"), "r")
         self.sub_instructions = self.sub_handler["sub_instructions"]
-        if mode=="train":
-            self.rgb_num = int(self.rgb.shape[0]*train_frac)
-            self.depth_num = int(self.depth.shape[0]*train_frac)
-            self.inst_num = int(self.instructions.shape[0]*train_frac)
-            self.sub_num = int(self.sub_instructions.shape[0]*train_frac)
+        if mode == "train":
+            self.rgb_num = int(self.rgb.shape[0] * train_frac)
+            self.depth_num = int(self.depth.shape[0] * train_frac)
+            self.inst_num = int(self.instructions.shape[0] * train_frac)
+            self.sub_num = int(self.sub_instructions.shape[0] * train_frac)
             self.rgb_offset = 0
             self.depth_offset = 0
             self.inst_offset = 0
             self.sub_offset = 0
         else:
-            self.rgb_num = int(self.rgb.shape[0]*(1-train_frac))
-            self.depth_num = int(self.depth.shape[0]*(1-train_frac))
-            self.inst_num = int(self.instructions.shape[0]*(1-train_frac))
-            self.sub_num = int(self.sub_instructions.shape[0]*(1-train_frac))
-            self.rgb_offset = int(self.rgb.shape[0]*train_frac)-1
-            self.depth_offset = int(self.depth.shape[0]*train_frac)-1
-            self.inst_offset = int(self.instructions.shape[0]*train_frac)-1
-            self.sub_offset = int(self.sub_instructions.shape[0]*train_frac)-1
+            self.rgb_num = int(self.rgb.shape[0] * (1 - train_frac))
+            self.depth_num = int(self.depth.shape[0] * (1 - train_frac))
+            self.inst_num = int(self.instructions.shape[0] * (1 - train_frac))
+            self.sub_num = int(self.sub_instructions.shape[0] * (1 - train_frac))
+            self.rgb_offset = int(self.rgb.shape[0] * train_frac) - 1
+            self.depth_offset = int(self.depth.shape[0] * train_frac) - 1
+            self.inst_offset = int(self.instructions.shape[0] * train_frac) - 1
+            self.sub_offset = int(self.sub_instructions.shape[0] * train_frac) - 1
         self.train_frac = train_frac
         self.mode = mode
-        logger.debug("Stage 0 dataset, mode {}, original rgb num {}, used rgb num {}".format(mode, self.rgb.shape[0], self.rgb_num))
+        logger.debug(
+            "Stage 0 dataset, mode {}, original rgb num {}, used rgb num {}".format(
+                mode, self.rgb.shape[0], self.rgb_num
+            )
+        )
 
     def __len__(self):
         return max(self.rgb_num, self.depth_num, self.inst_num, self.sub_num)
 
     def __getitem__(self, idx):
-        rgb = self.rgb[(idx % self.rgb_num)+self.rgb_offset]
-        depth = self.depth[(idx % self.depth_num)+self.depth_offset]
-        instruction = self.instructions[(idx % self.inst_num)+self.inst_offset]
-        sub_instruction = self.sub_instructions[(idx % self.sub_num)+self.sub_offset]
+        rgb = self.rgb[(idx % self.rgb_num) + self.rgb_offset]
+        depth = self.depth[(idx % self.depth_num) + self.depth_offset]
+        instruction = self.instructions[(idx % self.inst_num) + self.inst_offset]
+        sub_instruction = self.sub_instructions[(idx % self.sub_num) + self.sub_offset]
 
         return {
             "rgb": rgb.astype(np.float32),
@@ -129,29 +144,37 @@ class Stage1Dataset(torch.utils.data.Dataset):
         )
         self.instructions = self.language_handler["instructions"]
         self.sub_instructions = self.language_handler["sub_instructions"]
-        if mode=="train":
-            self.vision_num = int(self.rgb.shape[0]*train_frac)
-            self.language_num = int(self.instructions.shape[0]*train_frac)
+        if mode == "train":
+            self.vision_num = int(self.rgb.shape[0] * train_frac)
+            self.language_num = int(self.instructions.shape[0] * train_frac)
             self.vision_offset = 0
             self.language_offset = 0
         else:
-            self.vision_num = int(self.rgb.shape[0]*(1-train_frac))
-            self.language_num = int(self.instructions.shape[0]*(1-train_frac))
-            self.vision_offset = int(self.rgb.shape[0]*train_frac)-1
-            self.language_offset = int(self.instructions.shape[0]*train_frac)-1
+            self.vision_num = int(self.rgb.shape[0] * (1 - train_frac))
+            self.language_num = int(self.instructions.shape[0] * (1 - train_frac))
+            self.vision_offset = int(self.rgb.shape[0] * train_frac) - 1
+            self.language_offset = int(self.instructions.shape[0] * train_frac) - 1
 
-        self.train_frac = train_frac # propotion of training data
+        self.train_frac = train_frac  # propotion of training data
         self.mode = mode
-        logger.debug("Stage 1 dataset, mode {}, original rgb num {}, used rgb num {}".format(mode, self.rgb.shape[0], self.vision_num))
+        logger.debug(
+            "Stage 1 dataset, mode {}, original rgb num {}, used rgb num {}".format(
+                mode, self.rgb.shape[0], self.vision_num
+            )
+        )
 
     def __len__(self):
         return int(max(self.vision_num, self.language_num))
 
     def __getitem__(self, idx):
-        rgb = self.rgb[(idx % self.vision_num)+self.vision_offset]
-        depth = self.depth[(idx % self.vision_num)+self.vision_offset]
-        instruction = self.instructions[(idx % self.language_num)+self.language_offset]
-        sub_instruction = self.sub_instructions[(idx % self.language_num)+self.language_offset]
+        rgb = self.rgb[(idx % self.vision_num) + self.vision_offset]
+        depth = self.depth[(idx % self.vision_num) + self.vision_offset]
+        instruction = self.instructions[
+            (idx % self.language_num) + self.language_offset
+        ]
+        sub_instruction = self.sub_instructions[
+            (idx % self.language_num) + self.language_offset
+        ]
 
         return {
             "rgb": rgb.astype(np.float32),
@@ -178,28 +201,32 @@ class Stage2Dataset(torch.utils.data.Dataset):
         self.depth_num = self.depth.shape[0]
         self.inst_num = self.instructions.shape[0]
         self.sub_num = self.instructions.shape[0]
-        assert self.rgb_num== self.depth_num==self.inst_num==self.sub_num
-        if mode=="train":
-            self.data_num = int(self.rgb_num*train_frac)
+        assert self.rgb_num == self.depth_num == self.inst_num == self.sub_num
+        if mode == "train":
+            self.data_num = int(self.rgb_num * train_frac)
             self.data_offset = 0
         else:
-            self.data_num = int(self.rgb_num*(1-train_frac))
-            self.data_offset = int(self.rgb_num*train_frac)-1
-
+            self.data_num = int(self.rgb_num * (1 - train_frac))
+            self.data_offset = int(self.rgb_num * train_frac) - 1
 
         self.train_frac = train_frac
         self.mode = mode
-        logger.debug("Stage 2 dataset, mode {}, original rgb num {}, used rgb num {}".format(mode, self.rgb.shape[0], self.data_num))
+        logger.debug(
+            "Stage 2 dataset, mode {}, original rgb num {}, used rgb num {}".format(
+                mode, self.rgb.shape[0], self.data_num
+            )
+        )
 
     def __len__(self):
         return int(self.data_num)
 
     def __getitem__(self, idx):
-
-        rgb = self.rgb[(idx % self.data_num)+self.data_offset]
-        depth = self.depth[(idx % self.data_num)+self.data_offset]
-        instruction = self.instructions[(idx % self.data_num)+self.data_offset]
-        sub_instruction = self.sub_instructions[(idx % self.data_num)+self.data_offset]
+        rgb = self.rgb[(idx % self.data_num) + self.data_offset]
+        depth = self.depth[(idx % self.data_num) + self.data_offset]
+        instruction = self.instructions[(idx % self.data_num) + self.data_offset]
+        sub_instruction = self.sub_instructions[
+            (idx % self.data_num) + self.data_offset
+        ]
 
         return {
             "rgb": rgb.astype(np.float32),
@@ -219,7 +246,8 @@ class PreTrainer(BaseVLNCETrainer):
         self._make_ckpt_dir()
         if self.config.EVAL.SAVE_RESULTS:
             self._make_results_dir()
-    def _get_spaces(self, config, envs = None):
+
+    def _get_spaces(self, config, envs=None):
         """Gets both the observation space and action space.
 
         Args:
@@ -244,6 +272,7 @@ class PreTrainer(BaseVLNCETrainer):
         #     observation_space, self.obs_transforms
         # )
         return ObservationSpace(), ActionSpace()
+
     def _initialize_policy(
         self, config, observation_space, action_space, train_mode=True
     ) -> None:
@@ -314,8 +343,10 @@ class PreTrainer(BaseVLNCETrainer):
             self._train_stage1()
         elif self.config.PRETRAIN.stage == "STAGE2":
             self._train_stage2()
+
     def _post_step(self):
         self.policy.net._clamp_temperature()
+
     def _train_stage0(self):
         dataset = Stage0Dataset(
             folder=self.stage_config.folder,
@@ -635,19 +666,19 @@ class PreTrainer(BaseVLNCETrainer):
         gts = {}
         pres = {}
         metrics = {
-            "loss":{},
-            "accuracy":{},
-            "f1score":{},
+            "loss": {},
+            "accuracy": {},
+            "f1score": {},
         }
         with torch.no_grad():
             for batch in batch_bar:
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
                 now_loss, now_gt_pre = self.policy.net.stage0_forward(batch)
-                for k,v in now_loss.items():
+                for k, v in now_loss.items():
                     if k not in losses:
                         losses[k] = []
                     losses[k].append(v.squeeze().cpu().item())
-                for k,v in now_gt_pre.items():
+                for k, v in now_gt_pre.items():
                     if "gt" in k:
                         if k not in gts:
                             gts[k] = []
@@ -659,13 +690,17 @@ class PreTrainer(BaseVLNCETrainer):
                     else:
                         raise Exception
                 batch_bar.set_description(f"C {checkpoint_index}.")
-            for k,v in losses.items():
+            for k, v in losses.items():
                 metrics["loss"][k] = np.mean(v)
-            for k,gt in gts.items():
+            for k, gt in gts.items():
                 gt = torch.cat(gt)
-                pre = torch.cat(pres[k.replace("gt","pre")])
-                metrics["accuracy"][k.replace("_gt","")] = ((gt==pre).sum()/len(gt)).item()
-                metrics["f1score"][k.replace("_gt","")] = multiclass_f1_score(pre, gt, num_classes=dataloader.batch_size, average="macro").item()
+                pre = torch.cat(pres[k.replace("gt", "pre")])
+                metrics["accuracy"][k.replace("_gt", "")] = (
+                    (gt == pre).sum() / len(gt)
+                ).item()
+                metrics["f1score"][k.replace("_gt", "")] = multiclass_f1_score(
+                    pre, gt, num_classes=dataloader.batch_size, average="macro"
+                ).item()
         print(metrics)
         with open(fname, "w") as f:
             json.dump(metrics, f, indent=4)
@@ -715,19 +750,19 @@ class PreTrainer(BaseVLNCETrainer):
         gts = {}
         pres = {}
         metrics = {
-            "loss":{},
-            "accuracy":{},
-            "f1score":{},
+            "loss": {},
+            "accuracy": {},
+            "f1score": {},
         }
         with torch.no_grad():
             for batch in batch_bar:
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
                 now_loss, now_gt_pre = self.policy.net.stage1_forward(batch)
-                for k,v in now_loss.items():
+                for k, v in now_loss.items():
                     if k not in losses:
                         losses[k] = []
                     losses[k].append(v.squeeze().cpu().item())
-                for k,v in now_gt_pre.items():
+                for k, v in now_gt_pre.items():
                     if "gt" in k:
                         if k not in gts:
                             gts[k] = []
@@ -739,13 +774,17 @@ class PreTrainer(BaseVLNCETrainer):
                     else:
                         raise Exception
                 batch_bar.set_description(f"C {checkpoint_index}.")
-            for k,v in losses.items():
+            for k, v in losses.items():
                 metrics["loss"][k] = np.mean(v)
-            for k,gt in gts.items():
+            for k, gt in gts.items():
                 gt = torch.cat(gt)
-                pre = torch.cat(pres[k.replace("gt","pre")])
-                metrics["accuracy"][k.replace("_gt","")] = ((gt==pre).sum()/len(gt)).item()
-                metrics["f1score"][k.replace("_gt","")] = multiclass_f1_score(pre, gt, num_classes=dataloader.batch_size, average="macro").item()
+                pre = torch.cat(pres[k.replace("gt", "pre")])
+                metrics["accuracy"][k.replace("_gt", "")] = (
+                    (gt == pre).sum() / len(gt)
+                ).item()
+                metrics["f1score"][k.replace("_gt", "")] = multiclass_f1_score(
+                    pre, gt, num_classes=dataloader.batch_size, average="macro"
+                ).item()
         print(metrics)
         with open(fname, "w") as f:
             json.dump(metrics, f, indent=4)
@@ -796,19 +835,19 @@ class PreTrainer(BaseVLNCETrainer):
         gts = {}
         pres = {}
         metrics = {
-            "loss":{},
-            "accuracy":{},
-            "f1score":{},
+            "loss": {},
+            "accuracy": {},
+            "f1score": {},
         }
         with torch.no_grad():
             for batch in batch_bar:
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
                 now_loss, now_gt_pre = self.policy.net.stage2_forward(batch)
-                for k,v in now_loss.items():
+                for k, v in now_loss.items():
                     if k not in losses:
                         losses[k] = []
                     losses[k].append(v.squeeze().cpu().item())
-                for k,v in now_gt_pre.items():
+                for k, v in now_gt_pre.items():
                     if "gt" in k:
                         if k not in gts:
                             gts[k] = []
@@ -820,13 +859,17 @@ class PreTrainer(BaseVLNCETrainer):
                     else:
                         raise Exception
                 batch_bar.set_description(f"C {checkpoint_index}.")
-            for k,v in losses.items():
+            for k, v in losses.items():
                 metrics["loss"][k] = np.mean(v)
-            for k,gt in gts.items():
+            for k, gt in gts.items():
                 gt = torch.cat(gt)
-                pre = torch.cat(pres[k.replace("gt","pre")])
-                metrics["accuracy"][k.replace("_gt","")] = ((gt==pre).sum()/len(gt)).item()
-                metrics["f1score"][k.replace("_gt","")] = multiclass_f1_score(pre, gt, num_classes=dataloader.batch_size, average="macro").item()
+                pre = torch.cat(pres[k.replace("gt", "pre")])
+                metrics["accuracy"][k.replace("_gt", "")] = (
+                    (gt == pre).sum() / len(gt)
+                ).item()
+                metrics["f1score"][k.replace("_gt", "")] = multiclass_f1_score(
+                    pre, gt, num_classes=dataloader.batch_size, average="macro"
+                ).item()
         print(metrics)
         with open(fname, "w") as f:
             json.dump(metrics, f, indent=4)

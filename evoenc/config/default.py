@@ -377,8 +377,8 @@ _C.MODEL.EVOENC.freeze_weights = -1  # -1: not freeze;
 # 0: freeze layers before transformer
 # 1: freeze preLN
 # x>=1: freeze blcks[0:x]
-_C.MODEL.EVOENC.prev_action = True 
-_C.MODEL.EVOENC.post_fusion = True 
+_C.MODEL.EVOENC.prev_action = True
+_C.MODEL.EVOENC.post_fusion = True
 
 _C.MODEL.BERT = CN()
 _C.MODEL.BERT.model_name = "bert-base-uncased"

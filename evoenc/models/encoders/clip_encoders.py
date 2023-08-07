@@ -90,7 +90,7 @@ class CLIPEncoder(nn.Module):
                 else:
                     sub_embedding_seq = sub_embedding_seq[
                         torch.arange(sub_embedding_seq.shape[0]),
-                        sub_instruction[idx].argmax(dim=-1)
+                        sub_instruction[idx].argmax(dim=-1),
                     ]
                 sub_embedding[idx] = sub_embedding_seq
                 sub_embedding = sub_embedding.reshape(
