@@ -3,7 +3,7 @@ TRAINER_NAME: dagger_evoenc # dagger, or recollect_trainer
 DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
 TORCH_GPU_ID: 0
-NUM_ENVIRONMENTS: 4
+NUM_ENVIRONMENTS: 6
 TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p1_tune
 CHECKPOINT_FOLDER: data/checkpoints/evoenc_p1_tune
 EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p1_tune
@@ -17,14 +17,14 @@ EVAL:
 IL:
   epochs: 4
   batch_size: 2
-  lr: 2.5e-5
+  lr: 1e-4
   use_iw: True
   RECOLLECT_TRAINER:
     gt_file:
       data/datasets/R2R_VLNCE_NRSub_T/{split}/{split}_gt.json.gz
   load_from_ckpt: True
   load_from_pretrain: True
-  ckpt_to_load: data/checkpoints/evoenc_p1/ckpt.EEPolicy.4.pth
+  ckpt_to_load: data/checkpoints/evoenc_p1/ckpt.EEPolicy.2.pth
   
   DAGGER:
     iterations: 10
@@ -46,7 +46,7 @@ MODEL:
   EVOENC:
     rgb_len: 50
     layers: 4
-    inner_dropout: 0.1
+    inner_dropout: 0.0
   CLIP:
     downsample_size: 7
     trainable: False
