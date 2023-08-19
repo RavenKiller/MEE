@@ -133,16 +133,23 @@ class Stage1Dataset(torch.utils.data.Dataset):
 class Stage2Dataset(torch.utils.data.Dataset):
     def __init__(self, folder, positive_ratio=0.33, inner_ratio=0.5, data_frac=1.0):
         super().__init__()
-        self.data_handler = h5py.File(os.path.join(folder, "data.mat"), "r")
-        self.rgb = self.data_handler["rgb"]
-        self.depth = self.data_handler["depth"]
-        self.instructions = self.data_handler["instructions"]
-        self.sub_instructions = self.data_handler["sub_instructions"]
+        # self.data_handler = h5py.File(os.path.join(folder, "data.mat"), "r")
+        self.rgb_handler = h5py.File(os.path.join(folder, "data_rgb.mat"), "r")
+        self.depth_handler = h5py.File(os.path.join(folder, "data_depth.mat"), "r")
+        self.inst_handler = h5py.File(os.path.join(folder, "data_inst.mat"), "r")
+        self.sub_handler = h5py.File(os.path.join(folder, "data_sub.mat"), "r")
+        self.rgb = self.rgb_handler["rgb"]
+        self.depth = self.depth_handler["depth"]
+        self.instructions = self.inst_handler["instructions"]
+        self.sub_instructions = self.sub_handler["sub_instructions"]
 
         self.rgb_num = self.rgb.shape[0]
         self.depth_num = self.depth.shape[0]
         self.inst_num = self.instructions.shape[0]
         self.sub_num = self.instructions.shape[0]
+        assert self.rgb_num==self.depth_num
+        assert self.rgb_num==self.inst_num
+        assert self.inst_num==self.sub_num
 
         self.positive_ratio = positive_ratio  # the positive ratio
         self.inner_ratio = inner_ratio  # the negative inner alignment ratio
