@@ -16,20 +16,20 @@ EVAL:
 
 IL:
   epochs: 4
-  batch_size: 1
-  lr: 1.0e-4
+  batch_size: 2
+  lr: 2.5e-5
   use_iw: True
   RECOLLECT_TRAINER:
     gt_file:
       data/datasets/R2R_VLNCE_NRSub_T/{split}/{split}_gt.json.gz
   load_from_ckpt: True
   load_from_pretrain: True
-  ckpt_to_load: data/checkpoints/evoenc_p2/ckpt.EEPolicy.9.pth
+  ckpt_to_load: data/s3.pth
   
   DAGGER:
-    iterations: 10
+    iterations: 12
     update_size: 5000
-    p: 0.75
+    p: 0.8
     preload_lmdb_features: False
     lmdb_features_dir: data/trajectories_dirs/evoenc_p2_tune/trajectories.lmdb
 
