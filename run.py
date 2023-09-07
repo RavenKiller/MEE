@@ -5,6 +5,7 @@ import os
 import sys
 import random
 from datetime import datetime
+import time
 
 import numpy as np
 import torch
@@ -61,7 +62,8 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
         os.makedirs(logdir, exist_ok=True)
     logger.add_filehandler(config.LOG_FILE % (datetime.now().strftime("%Y%m%d-%H%M%S")))
 
-    seed =  config.TASK_CONFIG.SEED
+    # seed =  config.TASK_CONFIG.SEED
+    seed = int(time.time())
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
