@@ -4,10 +4,10 @@ DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
 TORCH_GPU_ID: 0
 NUM_ENVIRONMENTS: 6
-TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p2_single
-CHECKPOINT_FOLDER: data/checkpoints/evoenc_p2_single
-EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p2_single
-RESULTS_DIR: data/checkpoints/evoenc_p2_single/evals
+TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_s3_single
+CHECKPOINT_FOLDER: data/checkpoints/evoenc_s3_single
+EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_s3_single
+RESULTS_DIR: data/checkpoints/evoenc_s3_single/evals
 
 PRETRAIN:
   stage: STAGE2

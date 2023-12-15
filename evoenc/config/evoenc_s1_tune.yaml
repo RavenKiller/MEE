@@ -4,10 +4,10 @@ DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
 TORCH_GPU_ID: 0
 NUM_ENVIRONMENTS: 6
-TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p0_tune
-CHECKPOINT_FOLDER: data/checkpoints/evoenc_p0_tune
-EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p0_tune
-RESULTS_DIR: data/checkpoints/evoenc_p0_tune/evals
+TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_s1_tune
+CHECKPOINT_FOLDER: data/checkpoints/evoenc_s1_tune
+EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_s1_tune
+RESULTS_DIR: data/checkpoints/evoenc_s1_tune/evals
 
 EVAL:
   USE_CKPT_CONFIG: False
@@ -31,7 +31,7 @@ IL:
     update_size: 5000
     p: 0.75
     preload_lmdb_features: False
-    lmdb_features_dir: data/trajectories_dirs/evoenc_p0_tune/trajectories.lmdb
+    lmdb_features_dir: data/trajectories_dirs/evoenc_s1_tune/trajectories.lmdb
 
 MODEL:
   policy_name: EEPolicy

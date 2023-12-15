@@ -41,7 +41,7 @@ RAND_MIN = 25
 RAND_MAX = 100000
 
 
-class Stage0Dataset(torch.utils.data.Dataset):
+class Stage1Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
         folder,
@@ -84,7 +84,7 @@ class Stage0Dataset(torch.utils.data.Dataset):
         self.sub_handler.close()
 
 
-class Stage1Dataset(torch.utils.data.Dataset):
+class Stage2Dataset(torch.utils.data.Dataset):
     def __init__(self, folder, positive_ratio=0.33, data_frac=1.0):
         super().__init__()
         self.vision_handler = h5py.File(
@@ -130,7 +130,7 @@ class Stage1Dataset(torch.utils.data.Dataset):
         self.language_handler.close()
 
 
-class Stage2Dataset(torch.utils.data.Dataset):
+class Stage3Dataset(torch.utils.data.Dataset):
     def __init__(self, folder, positive_ratio=0.33, inner_ratio=0.5, data_frac=1.0):
         super().__init__()
         # self.data_handler = h5py.File(os.path.join(folder, "data.mat"), "r")
@@ -214,12 +214,12 @@ class PreTrainer(BaseVLNCETrainer):
         )
         self.policy.to(self.device)
         stage_config = None
-        if config.PRETRAIN.stage == "STAGE0":
-            stage_config = config.PRETRAIN.STAGE0
-        elif config.PRETRAIN.stage == "STAGE1":
+        if config.PRETRAIN.stage == "STAGE1":
             stage_config = config.PRETRAIN.STAGE1
         elif config.PRETRAIN.stage == "STAGE2":
             stage_config = config.PRETRAIN.STAGE2
+        elif config.PRETRAIN.stage == "STAGE3":
+            stage_config = config.PRETRAIN.STAGE3
         self.stage_config = stage_config
         lr = stage_config.lr
         load_from_ckpt = stage_config.load_from_ckpt
@@ -267,15 +267,15 @@ class PreTrainer(BaseVLNCETrainer):
             action_space=action_space,
         )
         self.policy.train()
-        if self.config.PRETRAIN.stage == "STAGE0":
-            self._train_stage0()
-        elif self.config.PRETRAIN.stage == "STAGE1":
+        if self.config.PRETRAIN.stage == "STAGE1":
             self._train_stage1()
         elif self.config.PRETRAIN.stage == "STAGE2":
             self._train_stage2()
+        elif self.config.PRETRAIN.stage == "STAGE3":
+            self._train_stage3()
 
-    def _train_stage0(self):
-        dataset = Stage0Dataset(
+    def _train_stage1(self):
+        dataset = Stage1Dataset(
             folder=self.stage_config.folder,
         )
         dataloader = torch.utils.data.DataLoader(
@@ -290,7 +290,7 @@ class PreTrainer(BaseVLNCETrainer):
                 self.config.TENSORBOARD_DIR,
                 self.config.MODEL.policy_name
                 + datetime.now().strftime("_%Y-%m-%d %H:%M:%S_")
-                + "stage0",
+                + "stage1",
             )
         )
         iter_num = 0
@@ -304,7 +304,7 @@ class PreTrainer(BaseVLNCETrainer):
             for batch in batch_bar:
                 self.optimizer.zero_grad()
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-                losses = self.policy.net.stage0_forward(batch)
+                losses = self.policy.net.stage1_forward(batch)
                 total_loss = 0
                 for i, k in enumerate(losses):
                     w = self.stage_config.loss_weights[i]
@@ -334,8 +334,8 @@ class PreTrainer(BaseVLNCETrainer):
         writer.close()
         dataset.close_h5file()
 
-    def _train_stage1(self):
-        dataset = Stage1Dataset(
+    def _train_stage2(self):
+        dataset = Stage2Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
         )
@@ -351,7 +351,7 @@ class PreTrainer(BaseVLNCETrainer):
                 self.config.TENSORBOARD_DIR,
                 self.config.MODEL.policy_name
                 + datetime.now().strftime("_%Y-%m-%d %H:%M:%S_")
-                + "stage1",
+                + "stage2",
             )
         )
         iter_num = 0
@@ -365,7 +365,7 @@ class PreTrainer(BaseVLNCETrainer):
             for batch in batch_bar:
                 self.optimizer.zero_grad()
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-                losses, _ = self.policy.net.stage1_forward(batch)
+                losses, _ = self.policy.net.stage2_forward(batch)
                 total_loss = 0
                 for i, k in enumerate(losses):
                     w = self.stage_config.loss_weights[i]
@@ -396,8 +396,8 @@ class PreTrainer(BaseVLNCETrainer):
         writer.close()
         dataset.close_h5file()
 
-    def _train_stage2(self):
-        dataset = Stage2Dataset(
+    def _train_stage3(self):
+        dataset = Stage3Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
             inner_ratio=self.stage_config.inner_ratio,
@@ -414,7 +414,7 @@ class PreTrainer(BaseVLNCETrainer):
                 self.config.TENSORBOARD_DIR,
                 self.config.MODEL.policy_name
                 + datetime.now().strftime("_%Y-%m-%d %H:%M:%S_")
-                + "stage2",
+                + "stage3",
             )
         )
         iter_num = 0
@@ -428,7 +428,7 @@ class PreTrainer(BaseVLNCETrainer):
             for batch in batch_bar:
                 self.optimizer.zero_grad()
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-                losses, _ = self.policy.net.stage2_forward(batch)
+                losses, _ = self.policy.net.stage3_forward(batch)
                 total_loss = 0
                 for i, k in enumerate(losses):
                     w = self.stage_config.loss_weights[i]
@@ -528,15 +528,15 @@ class PreTrainer(BaseVLNCETrainer):
         self.policy.eval()
         self.policy.net.eval()
 
-        if self.config.PRETRAIN.stage == "STAGE0":
+        if self.config.PRETRAIN.stage == "STAGE1":
             pass
-        elif self.config.PRETRAIN.stage == "STAGE1":
-            self._eval_stage1(checkpoint_index)
         elif self.config.PRETRAIN.stage == "STAGE2":
             self._eval_stage2(checkpoint_index)
+        elif self.config.PRETRAIN.stage == "STAGE3":
+            self._eval_stage3(checkpoint_index)
 
-    def _eval_stage1(self, checkpoint_index):
-        dataset = Stage1Dataset(
+    def _eval_stage2(self, checkpoint_index):
+        dataset = Stage2Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
             data_frac=1.0,
@@ -556,7 +556,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         fname = os.path.join(
             self.config.RESULTS_DIR,
-            f"stats_ckpt_{checkpoint_index}_stage1.json",
+            f"stats_ckpt_{checkpoint_index}_stage2.json",
         )
         if os.path.exists(fname):
             logger.info("skipping -- evaluation exists.")
@@ -568,7 +568,7 @@ class PreTrainer(BaseVLNCETrainer):
         with torch.no_grad():
             for batch in batch_bar:
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-                _, res = self.policy.net.stage1_forward(batch)
+                _, res = self.policy.net.stage2_forward(batch)
                 gt_v.append(res["align_gt_v"].squeeze().cpu())
                 pred_v.append(torch.sigmoid(res["align_pre_v"].squeeze().cpu()))
                 gt_l.append(res["align_gt_l"].squeeze().cpu())
@@ -591,8 +591,8 @@ class PreTrainer(BaseVLNCETrainer):
         with open(fname, "w") as f:
             json.dump({"f1_socre": float(f1_score)}, f, indent=4)
 
-    def _eval_stage2(self, checkpoint_index):
-        dataset = Stage2Dataset(
+    def _eval_stage3(self, checkpoint_index):
+        dataset = Stage3Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
             inner_ratio=self.stage_config.inner_ratio,
@@ -613,7 +613,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         fname = os.path.join(
             self.config.RESULTS_DIR,
-            f"stats_ckpt_{checkpoint_index}_stage2.json",
+            f"stats_ckpt_{checkpoint_index}_stage3.json",
         )
         if os.path.exists(fname):
             logger.info("skipping -- evaluation exists.")
@@ -623,7 +623,7 @@ class PreTrainer(BaseVLNCETrainer):
         with torch.no_grad():
             for batch in batch_bar:
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-                _, res = self.policy.net.stage2_forward(batch)
+                _, res = self.policy.net.stage3_forward(batch)
                 gt.append(res["outer_gt"].squeeze())
                 pred.append(torch.sigmoid(res["outer_pre"].squeeze()))
                 batch_bar.set_description(f"C {checkpoint_index}.")
@@ -640,7 +640,7 @@ class PreTrainer(BaseVLNCETrainer):
 
 
 if __name__ == "__main__":
-    d = Stage1Dataset("/hy-tmp/stage1/rgb_depth.mat")
+    d = Stage2Dataset("/hy-tmp/stage2/rgb_depth.mat")
     loader = torch.utils.data.DataLoader(d, shuffle=True, batch_size=8)
     for v in loader:
         print(v.keys())

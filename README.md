@@ -39,20 +39,20 @@ pip install -r requirements.txt
 7. Download the depth encoder from [here](https://www.jianguoyun.com/p/DREiSbAQhY--CRjv0foEIAA). Extract the model to `data/ddppo-models/gibson-4plus-resnet50.pth`.
 
 ## Evo Dataset
-We proposed an evolutionary pre-training strategy in this work and developed the corresponding datasets. The data collecting scripts are stored in `scripts/` with filenames like `evo_data_stage0.ipynb`. Stage0 here corresponds to stage 1 in the paper.
+We proposed an evolutionary pre-training strategy in this work and developed the corresponding datasets. The data collecting scripts are stored in `scripts/` with filenames like `evo_data_stage1.ipynb`.
 
 Our pre-processed version contains a total of 4.8M samples of all modalities. They can be downloaded from [BaiduNetdisk](https://pan.baidu.com/s/1XnE03NaACv8JQzHdF9_1Eg) (access code: evop). All data is organized in HDF5 format. The total size after decompression is around 720 GB. Below is the file list:
-+ stage0.zip
++ stage1.zip
     + rgb.mat: contains RGB data with shape (395439, 224, 224, 3)
     + depth.mat: contains depth data with shape (417900, 256, 256, 1)
     + inst.mat: contains instruction data with shape (400250, 77), zero-padded, and tokenized
     + sub.mat: contains sub-instruction data with shape (410357, 12, 77)
-+ stage1.zip
++ stage2.zip
     + rgb_depth_large.mat: contains aligned RGB and depth data, a total of 230766 pairs
     + inst_sub_large.mat: contains aligned instruction and sub-instruction data, a total of 157877 pairs
     + rgb_depth.mat: contains a small debug version
     + inst_sub.mat: contains a small debug version
-+ stage2.zip
++ stage3.zip
     + data.mat: contains aligned (RGB, depth, instruction, sub-instruction), a total of 601038 tuples 
 
 The data source includes:

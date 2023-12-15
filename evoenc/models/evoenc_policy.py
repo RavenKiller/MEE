@@ -637,7 +637,7 @@ class EENet(Net):
             masked_feature[mask] = mask_embedding
             return masked_feature, mask
 
-    def stage0_forward(self, observations, positive=True):
+    def stage1_forward(self, observations, positive=True):
         # Batch info
         # N = observations["rgb"].shape[0]
 
@@ -883,7 +883,7 @@ class EENet(Net):
             "loss_mean": loss_mean,
         }
 
-    def stage1_forward(self, observations):
+    def stage2_forward(self, observations):
         #################################################
         # Losses initialization
         #################################################
@@ -1095,7 +1095,7 @@ class EENet(Net):
             "align_pre_l": align_pre_l,
         }
 
-    def stage2_forward(self, observations):
+    def stage3_forward(self, observations):
         #################################################
         # Losses initialization
         #################################################
