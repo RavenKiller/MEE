@@ -15,6 +15,8 @@ from habitat_baselines.common.baseline_registry import baseline_registry
 import habitat_extensions  # noqa: F401
 import evoenc  # noqa: F401
 from evoenc.config.default import get_config
+os.environ["http_proxy"] = "http://127.0.0.1:7890"
+os.environ["https_proxy"] = "http://127.0.0.1:7890"
 
 # from evoenc.nonlearning_agents import (
 #     evaluate_agent,
@@ -25,13 +27,13 @@ from evoenc.config.default import get_config
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--run-type",
+        "--mode",
         choices=["train", "eval", "inference"],
         required=True,
         help="run type of the experiment (train, eval, inference)",
     )
     parser.add_argument(
-        "--exp-config",
+        "--config",
         type=str,
         required=True,
         help="path to config yaml containing info about experiment",
@@ -47,15 +49,15 @@ def main():
     run_exp(**vars(args))
 
 
-def run_exp(exp_config: str, run_type: str, opts=None) -> None:
+def run_exp(config: str, mode: str, opts=None) -> None:
     """Runs experiment given mode and config
 
     Args:
-        exp_config: path to config file.
-        run_type: "train" or "eval.
+        config: path to config file.
+        mode: "train" or "eval.
         opts: list of strings of additional config options.
     """
-    config = get_config(exp_config, opts)
+    config = get_config(config, opts)
     logger.info(f"config: {config}")
     logdir = "/".join(config.LOG_FILE.split("/")[:-1])
     if logdir:
@@ -73,18 +75,18 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     if torch.cuda.is_available():
         torch.set_num_threads(1)
 
-    if run_type == "eval":
+    if mode == "eval":
         torch.backends.cudnn.deterministic = True
 
     trainer_init = baseline_registry.get_trainer(config.TRAINER_NAME)
     assert trainer_init is not None, f"{config.TRAINER_NAME} is not supported"
     trainer = trainer_init(config)
 
-    if run_type == "train":
+    if mode == "train":
         trainer.train()
-    elif run_type == "eval":
+    elif mode == "eval":
         trainer.eval()
-    elif run_type == "inference":
+    elif mode == "inference":
         trainer.inference()
 
 

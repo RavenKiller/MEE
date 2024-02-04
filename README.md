@@ -64,8 +64,8 @@ The data source includes:
 `run.py` is the program entrance. You can run it like this:
 ```bash
 python run.py \
-  --exp-config {config} \
-  --run-type {type}
+  --config {config} \
+  --mode {type}
 ```
 `{config}` should be replaced by a config file path; `{type}` should be `train`, `eval`, or `inference`, meaning train, evaluate, and test models.
 

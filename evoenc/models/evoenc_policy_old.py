@@ -19,7 +19,7 @@ from habitat_baselines.rl.ppo.policy import Net
 from torch import Tensor
 
 from evoenc.common.aux_losses import AuxLosses
-from transformers import CLIPVisionModel, BertModel
+from evoenc.models.encoders import clip_encoders
 
 # from vlnce_baselines.models.encoders import resnet_encoders
 from evoenc.models.encoders.transformer_encoder import Transformer, LayerNorm
@@ -134,15 +134,19 @@ class EENet(Net):
         self._masked_feature_ratio = config.PRETRAIN.masked_feature_ratio
 
         # Init the CLIP rgb encoder
-        self.clip_encoder = CLIPVisionModel.from_pretrained(config.MODEL.CLIP.model_name)
-        self.rgb_ln = nn.LayerNorm(model_config.CLIP.hidden_size)
+        self.clip_encoder = clip_encoders.CLIPVisionEncoder(config)
         # Init the TAC depth encoder
-        self.tac_encoder = CLIPVisionModel.from_pretrained(config.MODEL.TAC.model_name)
-        self.depth_ln = nn.LayerNorm(model_config.TAC.hidden_size)
+        self.tac_encoder = clip_encoders.TACDepthEncoder(config)
         # Init the BERT text encoder
-        self.bert_encoder = BertModel.from_pretrained(config.MODEL.BERT.model_name)
-        self.inst_ln = nn.LayerNorm(model_config.BERT.hidden_size)
+        self.bert_encoder = clip_encoders.BERTEncoder(config)
 
+        self.window_size = model_config.EVOENC.window_size
+        self.rgb_len = model_config.EVOENC.rgb_len
+        self.depth_len = model_config.EVOENC.depth_len
+        self.instruction_len = model_config.EVOENC.instruction_len
+        self.sub_len = model_config.EVOENC.sub_len
+        self.pe_type = model_config.EVOENC.pe_type
+        self.storage = None
 
         self.rgb_fc = nn.Sequential(
             nn.LayerNorm(model_config.CLIP.vit_size),
@@ -167,13 +171,6 @@ class EENet(Net):
             nn.Linear(self.model_config.CLIP.output_size, self._hidden_size),
             nn.ReLU(inplace=False),
         )
-        self.window_size = model_config.EVOENC.window_size
-        self.rgb_len = model_config.EVOENC.rgb_len
-        self.depth_len = model_config.EVOENC.depth_len
-        self.instruction_len = model_config.EVOENC.instruction_len
-        self.sub_len = model_config.EVOENC.sub_len
-        self.pe_type = model_config.EVOENC.pe_type
-        self.storage = None
 
         # scale = self._hidden_size**-0.5
         self.total_len = (
@@ -342,35 +339,6 @@ class EENet(Net):
     @property
     def num_recurrent_layers(self) -> int:
         return self._num_recurrent_layers
-    def encode_rgb(self, observations):
-        if "rgb_seq_features" in observations:
-            rgb_seq_features = observations["rgb_seq_features"]
-        else:
-            rgb_observations = observations["rgb"]
-            rgb_seq_features = self.clip_encoder(pixel_values=rgb_observations).last_hidden_state
-            rgb_seq_features = F.normalize(rgb_seq_features, dim=-1)
-        return rgb_seq_features
-    def encode_depth(self, observations):
-        if "depth_seq_features" in observations:
-            depth_seq_features = observations["depth_seq_features"]
-        else:
-            depth_observations = observations["depth"]
-            depth_seq_features = self.tac_encoder(pixel_values=depth_observations).last_hidden_state
-            depth_seq_features = F.normalize(depth_seq_features, dim=-1)
-        return depth_seq_features
-    def encode_inst(self, observations):
-        if "inst_seq_features" in observations:
-            inst_seq_features = observations["inst_seq_features"]
-        else:
-            inst_observations = observations.get("instruction", None)
-            inst_mask = observations.get("instruction_mask", None)
-            if inst_observations is None:
-                inst_observations = observations.get("text", None)
-                inst_mask = observations.get("text_mask", None)
-
-            inst_seq_features = self.bert_encoder(input_ids=inst_observations, attention_mask=inst_mask).last_hidden_state
-        return inst_seq_features
-
 
     def get_rgb_features(self):
         return self.rgb_features
@@ -423,10 +391,23 @@ class EENet(Net):
         prev_actions: Tensor,
         masks: Tensor,
     ) -> Tuple[Tensor, Tensor]:
+        # Batch info
+        # N = rnn_states.shape[0]
+        # T = rnn_states.shape[1]
+
         # Embedding
-        rgb_seq_features = self.encode_rgb(observations)
-        depth_seq_features = self.encode_depth(observations)
-        inst_seq_features = self.encode_inst(observations)
+        instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
+        mask_inst = (instruction_embedding == 0).all(dim=2)
+        sub_instruction_embedding = self.clip_encoder.encode_sub_instruction(
+            observations
+        )  # (N,L,D)
+        mask_sub = (sub_instruction_embedding == 0).all(dim=2)
+        depth_embedding, depth_embedding_seq = self.depth_encoder.encode_depth(
+            observations
+        )  # (N,D), (N,D,L)
+        rgb_embedding, rgb_embedding_seq = self.clip_encoder.encode_image(
+            observations,
+        )  # (N,D), (N,D,L)
 
         # (T*N,D) -> (T*N,W,D)
         if "rgb_seq_features" not in observations:  # No dagger or eval
@@ -649,9 +630,24 @@ class EENet(Net):
         # N = observations["rgb"].shape[0]
 
         # Embedding
-        rgb_seq_features = self.rgb_ln(self.encode_rgb(observations))
-        depth_seq_features = self.depth_ln(self.encode_depth(observations))
-        inst_seq_features = self.inst_ln(self.encode_inst(observations))
+        instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
+        mask_inst = (instruction_embedding == 0).all(dim=2)
+        sub_instruction_embedding = self.clip_encoder.encode_sub_instruction(
+            observations
+        )  # (N,L,D)
+        mask_sub = (sub_instruction_embedding == 0).all(dim=2)
+        depth_embedding, depth_embedding_seq = self.depth_encoder.encode_depth(
+            observations
+        )  # (N,D), (N,D,L)
+        rgb_embedding, rgb_embedding_seq = self.clip_encoder.encode_image(
+            observations,
+        )  # (N,D), (N,D,L)
+        rgb_embedding_seq = torch.cat(
+            [rgb_embedding.unsqueeze(2), rgb_embedding_seq], dim=2
+        ).permute(
+            0, 2, 1
+        )  # (N, D, L+1)
+        depth_embedding_seq = depth_embedding_seq.permute(0, 2, 1)
 
         # Cached features
         self.rgb_seq_features = rgb_embedding_seq.detach().clone()

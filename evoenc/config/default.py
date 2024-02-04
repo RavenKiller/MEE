@@ -263,7 +263,7 @@ _C.PRETRAIN.STAGE1.warmup = 1000
 _C.PRETRAIN.STAGE1.batch_size = 32
 _C.PRETRAIN.STAGE1.loss_weights = [1.0, 1.0]
 _C.PRETRAIN.STAGE1.folder = (
-    "/root/autodl-tmp/stage1"  # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
+    "/root/autodl-tmp/data/stage1"  # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
 )
 
 _C.PRETRAIN.STAGE2 = CN()
@@ -275,7 +275,7 @@ _C.PRETRAIN.STAGE2.warmup = 1000
 _C.PRETRAIN.STAGE2.batch_size = 32
 _C.PRETRAIN.STAGE2.loss_weights = [0.5, 0.5, 1.0]
 _C.PRETRAIN.STAGE2.folder = (
-    "/root/autodl-tmp/stage2"  # must contains rgb_depth_large.mat, inst_sub_large.mat
+    "/root/autodl-tmp/data/stage2"  # must contains rgb_depth_large.mat, inst_sub_large.mat
 )
 _C.PRETRAIN.STAGE2.positive_ratio = 0.4
 
@@ -287,7 +287,7 @@ _C.PRETRAIN.STAGE3.lr = 1e-4
 _C.PRETRAIN.STAGE3.warmup = 1000
 _C.PRETRAIN.STAGE3.batch_size = 32
 _C.PRETRAIN.STAGE3.loss_weights = [0.4, 0.4, 1.0, 1.0]
-_C.PRETRAIN.STAGE3.folder = "/root/autodl-tmp/stage3"  # must contains data.mat
+_C.PRETRAIN.STAGE3.folder = "/root/autodl-tmp/data/stage3"  # must contains data.mat
 _C.PRETRAIN.STAGE3.positive_ratio = 0.3
 _C.PRETRAIN.STAGE3.inner_ratio = 0.5
 
@@ -342,13 +342,26 @@ _C.MODEL.DEPTH_ENCODER.trainable = False
 _C.MODEL.DEPTH_ENCODER.final_relu = True
 
 _C.MODEL.CLIP = CN()
-_C.MODEL.CLIP.model_name = "ViT-B/32"
+_C.MODEL.CLIP.model_name = "openai/clip-vit-base-patch32"
 _C.MODEL.CLIP.output_size = 512
 _C.MODEL.CLIP.feature_size = 256  # in type0, it is 256
+_C.MODEL.CLIP.hidden_size = 768
 _C.MODEL.CLIP.vit_size = 768
 _C.MODEL.CLIP.trainable = False
 _C.MODEL.CLIP.downsample_size = 3  # 3x3 = 9
 _C.MODEL.CLIP.rgb_level = -1  # final level feature
+
+_C.MODEL.TAC = CN()
+_C.MODEL.TAC.model_name = "RavenK/TAC-ViT-base"
+_C.MODEL.TAC.hidden_size = 768
+
+_C.MODEL.BERT = CN()
+_C.MODEL.BERT.model_name = "bert-base-uncased"
+_C.MODEL.BERT.hidden_size = 768
+_C.MODEL.BERT.use_layer = 6
+_C.MODEL.BERT.tune_layer = []
+_C.MODEL.BERT.use_fc = True
+_C.MODEL.BERT.use_cls = False
 
 
 _C.MODEL.EVOENC = CN()
@@ -376,13 +389,6 @@ _C.MODEL.EVOENC.freeze_weights = -1  # -1: not freeze;
 # x>=1: freeze blcks[0:x]
 _C.MODEL.EVOENC.prev_action = False  # cat or add
 
-_C.MODEL.BERT = CN()
-_C.MODEL.BERT.model_name = "bert-base-uncased"
-_C.MODEL.BERT.output_size = 768
-_C.MODEL.BERT.use_layer = 6
-_C.MODEL.BERT.tune_layer = []
-_C.MODEL.BERT.use_fc = True
-_C.MODEL.BERT.use_cls = False
 
 # Different states are stacked at layer dim, so their feature sizes must be same.
 _C.MODEL.STATE_ENCODER = CN()

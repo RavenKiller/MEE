@@ -10,164 +10,75 @@ from torch import Tensor
 
 from evoenc.common.utils import single_frame_box_shape
 from transformers import DistilBertModel, DistilBertTokenizer, AutoModel, AutoTokenizer
+from PIL import Image
+import requests
+from transformers import AutoProcessor, CLIPVisionModel, AutoTokenizer, BertModel
 
 
-class CLIPEncoder(nn.Module):
+class CLIPVisionEncoder(nn.Module):
     def __init__(
         self,
-        model_name: str,
-        trainable: bool = False,
-        downsample_size: int = 3,
-        rgb_level: int = -1,
+        config,
     ) -> None:
         super().__init__()
-        self.model, self.preprocessor = clip.load(model_name)
-        for param in self.model.parameters():
-            param.requires_grad_(trainable)
-        self.normalize_visual_inputs = True
-        self.normalize_mu = torch.FloatTensor([0.48145466, 0.4578275, 0.40821073])
-        self.normalize_sigma = torch.FloatTensor([0.26862954, 0.26130258, 0.27577711])
-        self.rgb_embedding_seq = None
-        # self.ln_rgb = nn.LayerNorm(768)
-        # self.ln_text = nn.LayerNorm(512)
-        self.use_mean = True
-        if rgb_level == -1:
-            self.model.visual.transformer.register_forward_hook(self._vit_hook)
-            self.model.transformer.register_forward_hook(self._t_hook)
-        else:
-            self.model.visual.transformer.resblocks[rgb_level].register_forward_hook(
-                self._vit_hook
-            )
-            self.model.transformer.resblocks[rgb_level].register_forward_hook(
-                self._t_hook
-            )
-        self.sub_embedding_seq = None
-        self.downsample_size = downsample_size
-        self.rgb_downsample = nn.Sequential(
-            nn.AdaptiveAvgPool2d(downsample_size), nn.Flatten(start_dim=2)
-        )
-
-    def _normalize(self, imgs: Tensor) -> Tensor:
-        if self.normalize_visual_inputs:
-            device = imgs.device
-            if self.normalize_sigma.device != imgs.device:
-                self.normalize_sigma = self.normalize_sigma.to(device)
-                self.normalize_mu = self.normalize_mu.to(device)
-            imgs = (imgs / 255.0 - self.normalize_mu) / self.normalize_sigma
-            imgs = imgs.permute(0, 3, 1, 2)
-            return imgs
-        else:
-            return imgs
-
-    def _vit_hook(self, m, i, o):
-        self.rgb_embedding_seq = o.float()
-
-    def _t_hook(self, m, i, o):
-        self.sub_embedding_seq = o.float()
-
-    def encode_sub_instruction(self, observations: Observations) -> Tensor:
-        if "sub_features" in observations:
-            sub_embedding = observations["sub_features"]
-        else:
-            with torch.no_grad():
-                sub_instruction = observations["sub_instruction"].int()
-                shape = sub_instruction.shape
-                sub_instruction = sub_instruction.reshape((-1, shape[-1]))
-                idx = (sub_instruction > 0).any(dim=-1)  # N*L, index of useful position
-                attention_mask = sub_instruction > 0
-                sub_embedding = torch.zeros(
-                    (shape[0] * shape[1], 512), dtype=torch.float
-                ).to(sub_instruction.device)
-                self.model.encode_text(sub_instruction[idx]).float()
-                # LND -> NLD
-                sub_embedding_seq = self.sub_embedding_seq.float().permute(1, 0, 2)
-                if self.use_mean:
-                    am = attention_mask[idx]
-                    lengths = am.sum(dim=1).unsqueeze(1)  # Word numbers in useful subs
-                    sub_embedding_seq = (sub_embedding_seq * am.unsqueeze(2)).sum(
-                        dim=1
-                    ) / lengths
-                else:
-                    sub_embedding_seq = sub_embedding_seq[
-                        torch.arange(sub_embedding_seq.shape[0]),
-                        sub_instruction[idx].argmax(dim=-1)
-                    ]
-                sub_embedding[idx] = sub_embedding_seq
-                sub_embedding = sub_embedding.reshape(
-                    (shape[0], shape[1], sub_embedding.shape[-1])
-                )
-                # sub_mask = (sub_embedding != 0).any(dim=2)
-        return sub_embedding
-
-    def encode_text_old(self, observations: Observations) -> Tensor:
-        if "sub_features" in observations:
-            sub_embedding = observations["sub_features"]
-        else:
-            sub_instruction = observations["sub_instruction"].int()
-            bs = sub_instruction.shape[0]
-            T = sub_instruction.shape[1]
-            ## fast
-            # N = sub_instruction.shape[2]
-            sub_embedding = torch.zeros((bs, T, 512), dtype=torch.float).to(
-                sub_instruction.device
-            )
-            for i in range(bs):
-                pad = torch.zeros((1,), dtype=torch.int, device=sub_instruction.device)
-                idx = torch.argmin(
-                    torch.cat((sub_instruction[i, :, 0], pad))
-                )  # effective sub instructions num
-                _ = self.model.encode_text(sub_instruction[i][0:idx]).float()
-                # LND -> NLD
-                sub_embedding_seq = self.sub_embedding_seq.float().permute(1, 0, 2)
-                # sub_embedding_seq = self.ln_text(sub_embedding_seq)
-                sub_embedding[i][0:idx] = sub_embedding_seq[
-                    torch.arange(sub_embedding_seq.shape[0]),
-                    sub_instruction[i][0:idx].argmax(dim=-1),
-                ]
-        return sub_embedding
-
-    def encode_raw(self, observations: Observations) -> Tensor:
-        if "inst_features" in observations:
-            raw_embedding_seq = observations["inst_features"]
-        else:
-            instruction = observations["instruction"].int()
-            _ = self.model.encode_text(instruction).float()
-            # LND -> NLD
-            raw_embedding_seq = self.sub_embedding_seq.float().permute(1, 0, 2)
-            raw_embedding_seq[instruction == 0] = 0
-        return raw_embedding_seq
+        self.config = config
+        self.model = CLIPVisionModel.from_pretrained(config.MODEL.CLIP.model_name)
 
     def encode_image(
         self, observations: Observations, return_seq: bool = True
     ) -> Tensor:
-        if "rgb_features" in observations and "rgb_seq_features" in observations:
-            rgb_embedding = observations["rgb_features"]
-            rgb_embedding_seq = observations["rgb_seq_features"]
+        if "rgb_seq_features" in observations:
+            rgb_seq_features = observations["rgb_seq_features"]
         else:
             rgb_observations = observations["rgb"]
-            _ = self.model.encode_image(self._normalize(rgb_observations)).float()
-            s = self.rgb_embedding_seq.shape
-            # LND -> NLD
-            rgb_embedding_seq = self.rgb_embedding_seq.float().permute(1, 0, 2)
-            # rgb_embedding_seq = self.ln_rgb(rgb_embedding_seq)
-            rgb_embedding = rgb_embedding_seq[:, 0, :]
-            if self.downsample_size == 7:
-                rgb_embedding_seq = rgb_embedding_seq[:, 1:, :].permute(0, 2, 1)
-            else:
-                # NLD -> NDL -> NDHW
-                rgb_embedding_seq = (
-                    rgb_embedding_seq[:, 1:, :]
-                    .permute(0, 2, 1)
-                    .reshape(s[1], s[2], 7, 7)
-                )
-                rgb_embedding_seq = self.rgb_downsample(rgb_embedding_seq)
-        if return_seq:
-            return (
-                rgb_embedding,
-                rgb_embedding_seq,
-            )  # returns [BATCH x OUTPUT_DIM]
+            rgb_seq_features = self.model(pixel_values=rgb_observations).last_hidden_state
+        return rgb_seq_features
+
+
+class TACDepthEncoder(nn.Module):
+    def __init__(
+        self,
+        config,
+    ) -> None:
+        super().__init__()
+        self.config = config
+        self.model = CLIPVisionModel.from_pretrained(
+            config.MODEL.TAC.model_name
+        )
+
+    def encode_depth(
+        self, observations: Observations, return_seq: bool = True
+    ) -> Tensor:
+        if "depth_seq_features" in observations:
+            depth_seq_features = observations["depth_seq_features"]
         else:
-            return rgb_embedding
+            depth_observations = observations["depth"]
+            depth_seq_features = self.model(pixel_values=depth_observations).last_hidden_state
+        return depth_seq_features
+
+class BERTEncoder(nn.Module):
+    def __init__(
+        self,
+        config,
+    ) -> None:
+        super().__init__()
+        self.config = config
+        self.model = BertModel.from_pretrained(config.MODEL.BERT.model_name)
+
+    def encode_inst(
+        self, observations: Observations, return_seq: bool = True
+    ) -> Tensor:
+        if "inst_seq_features" in observations:
+            inst_seq_features = observations["inst_seq_features"]
+        else:
+            inst_observations = observations.get("instruction", None)
+            inst_mask = observations.get("instruction_mask", None)
+            if inst_observations is None:
+                inst_observations = observations.get("text", None)
+                inst_mask = observations.get("text_mask", None)
+
+            inst_seq_features = self.model(input_ids=inst_observations, attention_mask=inst_mask).last_hidden_state
+        return inst_seq_features
 
 
 class InstructionEncoder(nn.Module):
@@ -390,13 +301,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--exp-config",
+        "--config",
         type=str,
         required=True,
         help="path to config yaml containing info about experiment",
     )
     parser.add_argument(
-        "--run-type",
+        "--mode",
         type=str,
         required=False,
         help="path to config yaml containing info about experiment",
