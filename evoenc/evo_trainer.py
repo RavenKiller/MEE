@@ -544,11 +544,53 @@ class PreTrainer(BaseVLNCETrainer):
         self.policy.net.eval()
 
         if self.config.PRETRAIN.stage == "STAGE0":
-            pass
+            self._eval_stage0(checkpoint_index)
         elif self.config.PRETRAIN.stage == "STAGE1":
             self._eval_stage1(checkpoint_index)
         elif self.config.PRETRAIN.stage == "STAGE2":
             self._eval_stage2(checkpoint_index)
+    def _eval_stage0(self, checkpoint_index):
+        dataset = Stage0Dataset(
+            folder=self.stage_config.folder,
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=64,
+            shuffle=True,
+            num_workers=4,
+            # pin_memory=True
+        )
+        batch_bar = tqdm.tqdm(
+            dataloader,
+            total=len(dataloader.dataset) // dataloader.batch_size,
+            leave=False,
+            dynamic_ncols=True,
+        )
+        fname = os.path.join(
+            self.config.RESULTS_DIR,
+            f"stats_ckpt_{checkpoint_index}_stage0.json",
+        )
+        if os.path.exists(fname):
+            logger.info("skipping -- evaluation exists.")
+            return
+        loss_mean = []
+        loss_rec = []
+        with torch.no_grad():
+            for batch in batch_bar:
+                batch = {k: v.to(device=self.device) for k, v in batch.items()}
+                res = self.policy.net.stage1_forward(batch)
+                loss_rec.append(res["loss_rec"].squeeze().cpu())
+                loss_mean.append(res["loss_mean"].squeeze().cpu())
+                batch_bar.set_description(
+                    f"C {checkpoint_index}."
+                )
+                batch_bar.set_postfix(
+                    {
+                        "V": "%2.4f" % (binary_f1_score(loss_mean[-1], loss_rec[-1])),
+                    }
+                )
+        with open(fname, "w") as f:
+            json.dump({"loss_mean": np.mean(loss_mean), "loss_rec": np.mean(loss_rec)}, f, indent=4)
     def _eval_stage1(self, checkpoint_index):
         dataset = Stage1Dataset(
             folder=self.stage_config.folder,

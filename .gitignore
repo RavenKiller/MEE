@@ -169,3 +169,5 @@ tmp.sh
 predictions*.json
 *.pickle
 transformer*.json
+
+r2r_split
