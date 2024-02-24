@@ -878,12 +878,12 @@ class EENet(Net):
         return {
             "loss_rec":loss_rec if positive_idx.sum()>0 else 0,
             "loss_mean":loss_mean if positive_idx.sum()>0 else 0,
-            "loss_align":loss_align,
+            "loss_inner":loss_align,
         }, {
-            "align_gt_v": align_gt,
-            "align_pre_v": align_pre_v,
-            "align_gt_l": align_gt,
-            "align_pre_l": align_pre_l
+            "inner_gt_v": align_gt,
+            "inner_pre_v": align_pre_v,
+            "inner_gt_l": align_gt,
+            "inner_pre_l": align_pre_l
         }
 
     def stage2_forward(self, observations):
@@ -1064,6 +1064,142 @@ class EENet(Net):
             "inner_pre_l": align_pre_l,
             "outer_gt": outer_gt,
             "outer_pre": align_pre
+        }
+
+    def feature_forward(self, observations):
+        # used to extract encoder features
+        inner_gt = observations["inner_gt"]
+        outer_gt = observations["outer_gt"]
+        positive_idx = outer_gt.bool()
+        #################################################
+        # Embeddings
+        #################################################
+        # Batch info
+        N = observations["rgb"].shape[0]
+
+        # Embedding
+        instruction_embedding = self.clip_encoder.encode_raw(
+            observations
+        )  # (N,L,D)
+        mask_inst = (instruction_embedding == 0).all(dim=2)
+        sub_instruction_embedding = self.clip_encoder.encode_sub_instruction(
+            observations
+        )  # (N,L,D)
+        mask_sub = (sub_instruction_embedding == 0).all(dim=2)
+        depth_embedding, depth_embedding_seq = self.depth_encoder.encode_depth(observations) # (N,D), (N,D,L)
+        rgb_embedding, rgb_embedding_seq = self.clip_encoder.encode_image(
+            observations,
+        ) # (N,D), (N,D,L)
+        rgb_embedding_seq = torch.cat([rgb_embedding.unsqueeze(2), rgb_embedding_seq], dim=2).permute(0,2,1) # (N, D, L+1)
+        depth_embedding_seq = depth_embedding_seq.permute(0,2,1)
+        
+        # Cached features, only positive samples used for reconstruction losses
+        self.rgb_seq_features = rgb_embedding_seq.detach().clone()
+        self.depth_seq_features = depth_embedding_seq.detach().clone() # self.depth_encoder.get_depth_seq_features()
+        self.inst_features = instruction_embedding.detach().clone()
+        self.sub_features = sub_instruction_embedding.detach().clone()
+
+        # Masked features
+        # feature masks only catch the masked positions, without padding positions
+        instruction_embedding, feature_mask_inst = self._feature_mask(instruction_embedding,pad_mask=mask_inst)
+        sub_instruction_embedding, feature_mask_sub = self._feature_mask(sub_instruction_embedding,pad_mask=mask_sub)
+        rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_embedding_seq)
+        depth_embedding_seq, feature_mask_depth = self._feature_mask(depth_embedding_seq)
+
+        # FC
+        instruction_embedding = self.inst_fc(instruction_embedding)
+        sub_instruction_embedding = self.sub_fc(sub_instruction_embedding)
+        rgb_embedding_seq = self.rgb_fc(rgb_embedding_seq)
+        depth_embedding_seq = self.depth_fc(depth_embedding_seq)
+
+        
+        ## Construct input sequence
+        # Token
+        token_embeddings = self.token_embedding.expand((rgb_embedding.shape[0],-1,-1)).clone()
+        # Concat
+        seq_embedding = torch.cat([
+            token_embeddings[:,0:1,:], # [RGB]
+            rgb_embedding_seq,
+            token_embeddings[:,1:2,:], # [DEP]
+            depth_embedding_seq,
+            token_embeddings[:,2:3,:], # [INS]
+            instruction_embedding,
+            token_embeddings[:,3:4,:], # [SUB]
+            sub_instruction_embedding,
+            ], dim=1)
+        # Extra embedding
+        if self.pe_type=="position":
+            seq_embedding = seq_embedding + self.positional_embedding.expand((seq_embedding.shape[0],-1,-1))
+        elif self.pe_type=="token":
+            a = self.type_embedding[0:1,:].repeat((self.rgb_len+1, 1))
+            b = self.type_embedding[1:2,:].repeat((self.depth_len+1, 1))
+            c = self.type_embedding[2:3,:].repeat((self.instruction_len+1, 1))
+            d = self.type_embedding[3:4,:].repeat((self.sub_len+1, 1))
+            token_ids_embedding = torch.cat([a,b,c,d], dim=0).expand((seq_embedding.shape[0],-1,-1))
+            seq_embedding = seq_embedding + token_ids_embedding
+        elif self.pe_type=="split_position":
+            a = self.positional_embedding[0:self.rgb_len+1,:]
+            b = self.positional_embedding[0:self.depth_len+1,:]
+            c = self.positional_embedding[0:self.instruction_len+1,:]
+            d = self.positional_embedding[0:self.sub_len+1,:]
+            split_position_embedding = torch.cat([a,b,c,d], dim=0).expand((seq_embedding.shape[0],-1,-1))
+            seq_embedding = seq_embedding + split_position_embedding
+        elif self.pe_type=="pt":
+            a = self.positional_embedding[0:self.rgb_len+1,:]
+            b = self.positional_embedding[0:self.depth_len+1,:]
+            c = self.positional_embedding[0:self.instruction_len+1,:]
+            d = self.positional_embedding[0:self.sub_len+1,:]
+            split_position_embedding = torch.cat([a,b,c,d], dim=0).expand((seq_embedding.shape[0],-1,-1))
+            a = self.type_embedding[0:1,:].repeat((self.rgb_len+1, 1))
+            b = self.type_embedding[1:2,:].repeat((self.depth_len+1, 1))
+            c = self.type_embedding[2:3,:].repeat((self.instruction_len+1, 1))
+            d = self.type_embedding[3:4,:].repeat((self.sub_len+1, 1))
+            token_ids_embedding = torch.cat([a,b,c,d], dim=0).expand((seq_embedding.shape[0],-1,-1))
+            seq_embedding = seq_embedding + split_position_embedding + token_ids_embedding
+
+        ## Attention mask, masking positions (empty words, empty subs)
+        start_inst = 3+self.depth_len+self.rgb_len
+        start_sub = 4+self.depth_len+self.rgb_len+self.instruction_len
+        T_N = seq_embedding.shape[0]
+        # (T*N, heads, L, L)
+        attn_mask = torch.zeros((T_N, self._transformer_heads, self.total_len, self.total_len), dtype=bool).to(rgb_embedding.device)
+        # Fill
+        attn_mask[:, :, :, start_inst:start_sub-1] = mask_inst.unsqueeze(1).unsqueeze(1).expand(-1, self._transformer_heads, self.total_len, -1)
+        attn_mask[:, :, :, start_sub:] =  mask_sub.unsqueeze(1).unsqueeze(1).expand(-1, self._transformer_heads, self.total_len, -1)
+        attn_mask = attn_mask.reshape((-1, self.total_len, self.total_len))
+        self.attn_mask = attn_mask
+
+        # Transformer blocks
+        seq_out = self._t_forward(seq_embedding, attn_mask)
+
+        # Total feature, select
+        rgb_cls = seq_out[:,0,:]
+        depth_cls = seq_out[:,self.rgb_len+1,:]
+        inst_cls = seq_out[:,start_inst-1,:]
+        sub_cls = seq_out[:,start_sub-1,:]
+        rgb_out = seq_out[:,1:self.rgb_len+1,]
+        depth_out = seq_out[:,self.rgb_len+2:self.rgb_len+self.depth_len+2,:]
+        inst_out = seq_out[:,start_inst:start_sub-1,:]
+        sub_out = seq_out[:,start_sub:,:]
+
+        B = rgb_cls.shape[0]
+        inst_out_mean = []
+        sub_out_mean = []
+        for i in range(B):
+            inst_out_mean.append(inst_out[i][torch.logical_not(mask_inst[i])].mean(dim=0))
+            sub_out_mean.append(sub_out[i][torch.logical_not(mask_sub[i])].mean(dim=0))
+        inst_out_mean = torch.stack(inst_out_mean)
+        sub_out_mean = torch.stack(sub_out_mean)
+        return {  
+            "rgb_cls": rgb_cls,
+            "depth_cls": depth_cls,
+            "inst_cls": inst_cls,
+            "sub_cls": sub_cls,
+            "rgb_out": rgb_out.mean(dim=1),
+            "depth_out": depth_out.mean(dim=1),
+            "inst_out": inst_out_mean,
+            "sub_out": sub_out_mean,
+            "positive_idx": positive_idx,
         }
 
 if __name__ == "__main__":
