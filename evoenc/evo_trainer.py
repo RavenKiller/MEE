@@ -636,7 +636,7 @@ class PreTrainer(BaseVLNCETrainer):
             self._eval_feature(checkpoint_index)
     def _eval_stage0(self, checkpoint_index):
         dataset = Stage0Dataset(
-            folder=self.stage_config.folder,
+            folder=self.stage_config.folder, data_frac=0.1
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -685,7 +685,7 @@ class PreTrainer(BaseVLNCETrainer):
         dataset = Stage1Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
-            data_frac=1.0,
+            data_frac=0.1,
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -759,7 +759,7 @@ class PreTrainer(BaseVLNCETrainer):
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
             inner_ratio=self.stage_config.inner_ratio,
-            data_frac=1.0,
+            data_frac=0.1,
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
