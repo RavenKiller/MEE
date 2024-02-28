@@ -172,3 +172,6 @@ predictions*.json
 transformer*.json
 evo.sh
 tmp.py
+
+r2r_split
+scripts/*.json
