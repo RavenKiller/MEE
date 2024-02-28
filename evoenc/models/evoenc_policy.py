@@ -142,6 +142,7 @@ class EENet(Net):
         # Init the BERT text encoder
         self.bert_encoder = BertModel.from_pretrained(config.MODEL.BERT.model_name)
         self.inst_ln = nn.LayerNorm(model_config.BERT.hidden_size)
+        self.sub_ln = nn.LayerNorm(model_config.BERT.hidden_size)
 
 
         self.rgb_fc = nn.Sequential(
@@ -343,7 +344,7 @@ class EENet(Net):
     def num_recurrent_layers(self) -> int:
         return self._num_recurrent_layers
     def encode_rgb(self, observations):
-        if "rgb_seq_features" in observations:
+        if "rgb_seq_features" in observations: # [B, L_rgb, D]
             rgb_seq_features = observations["rgb_seq_features"]
         else:
             rgb_observations = observations["rgb"]
@@ -351,7 +352,7 @@ class EENet(Net):
             rgb_seq_features = F.normalize(rgb_seq_features, dim=-1)
         return rgb_seq_features
     def encode_depth(self, observations):
-        if "depth_seq_features" in observations:
+        if "depth_seq_features" in observations: # [B, L_depth, D]
             depth_seq_features = observations["depth_seq_features"]
         else:
             depth_observations = observations["depth"]
@@ -360,13 +361,25 @@ class EENet(Net):
         return depth_seq_features
     def encode_inst(self, observations):
         if "inst_seq_features" in observations:
-            inst_seq_features = observations["inst_seq_features"]
+            inst_seq_features = observations["inst_seq_features"] # [B, L_isnt, D]
         else:
             inst_observations = observations.get("instruction", None)
             inst_mask = observations.get("instruction_mask", None)
             if inst_observations is None:
                 inst_observations = observations.get("text", None)
                 inst_mask = observations.get("text_mask", None)
+
+            inst_seq_features = self.bert_encoder(input_ids=inst_observations, attention_mask=inst_mask).last_hidden_state
+        return inst_seq_features
+    def encode_sub(self, observations):
+        if "sub_seq_features" in observations:
+            sub_seq_features = observations["sub_seq_features"]  # [B, L_sub, D]
+        else:
+            sub_observations = observations.get("sub_instruction", None)
+            sub_mask = observations.get("sub_instruction_mask", None)
+            if inst_observations is None:
+                inst_observations = observations.get("sub", None)
+                inst_mask = observations.get("sub_mask", None)
 
             inst_seq_features = self.bert_encoder(input_ids=inst_observations, attention_mask=inst_mask).last_hidden_state
         return inst_seq_features
@@ -652,6 +665,7 @@ class EENet(Net):
         rgb_seq_features = self.rgb_ln(self.encode_rgb(observations))
         depth_seq_features = self.depth_ln(self.encode_depth(observations))
         inst_seq_features = self.inst_ln(self.encode_inst(observations))
+        sub_seq_features = self.sub_ln(self.encode_sub(observations))
 
         # Cached features
         self.rgb_seq_features = rgb_embedding_seq.detach().clone()
