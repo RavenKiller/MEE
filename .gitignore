@@ -171,3 +171,4 @@ predictions*.json
 transformer*.json
 
 r2r_split
+scripts/*.json

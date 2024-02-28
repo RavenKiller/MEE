@@ -355,6 +355,8 @@ class PreTrainer(BaseVLNCETrainer):
             self._train_stage1()
         elif self.config.PRETRAIN.stage == "STAGE2":
             self._train_stage2()
+        elif self.config.PRETRAIN.stage == "REALSCENE":
+            self._train_realscene()
 
     def _train_stage0(self):
         dataset = Stage0Dataset(
@@ -553,7 +555,73 @@ class PreTrainer(BaseVLNCETrainer):
             )
         writer.close()
         dataset.close_h5file()
-
+    def _train_realscene(self):
+        dataset = RealsceneDataset(
+            folder=self.stage_config.folder,
+            positive_ratio=self.stage_config.positive_ratio,
+            inner_ratio=self.stage_config.inner_ratio,
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=self.stage_config.batch_size,
+            shuffle=True,
+            num_workers=6,
+            # pin_memory=True
+        )
+        writer = SummaryWriter(
+            os.path.join(
+                self.config.TENSORBOARD_DIR,
+                self.config.MODEL.policy_name
+                + datetime.now().strftime("_%Y-%m-%d %H:%M:%S_")
+                + "stage2",
+            )
+        )
+        iter_num = 0
+        for epoch in tqdm.trange(
+            self.stage_config.epochs, dynamic_ncols=True
+        ):
+            batch_bar = tqdm.tqdm(
+                dataloader,
+                total=len(dataloader.dataset) // dataloader.batch_size,
+                leave=False,
+                dynamic_ncols=True,
+            )
+            for batch in batch_bar:
+                self.optimizer.zero_grad()
+                batch = {k: v.to(device=self.device) for k, v in batch.items()}
+                losses, _ = self.policy.net.stage2_forward(batch)
+                total_loss = 0
+                for i,k in enumerate(losses):
+                    w = self.stage_config.loss_weights[i]
+                    total_loss += w*(losses[k])
+                total_loss.backward()
+                if self.max_grad_norm:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.policy.parameters(), self.max_grad_norm
+                    )
+                self.optimizer.step()
+                
+                batch_bar.set_description(
+                    f"E {epoch}."
+                )
+                batch_bar.set_postfix(
+                    {
+                        "loss": "%2.4f" % (total_loss),
+                        "rec": "%2.3f" % (losses["loss_rec"]),
+                        "mea": "%2.3f" % (losses["loss_mean"]),
+                        "inner": "%2.3f" % (losses["loss_inner"]),
+                        "outer": "%2.3f" % (losses["loss_outer"]),
+                    }
+                )
+                for k in losses:
+                    writer.add_scalar("loss/%s"%(k), losses[k], iter_num)
+                writer.add_scalar("loss/total", total_loss, iter_num)
+                iter_num += 1
+            self.save_checkpoint(
+                f"ckpt.{self.config.MODEL.policy_name}.{epoch}.pth"  # to continue train
+            )
+        writer.close()
+        dataset.close_h5file()
     def eval(self) -> None:
         r"""Main method of trainer evaluation. Calls _eval_checkpoint() that
         is specified in Trainer class that inherits from BaseRLTrainer

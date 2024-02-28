@@ -4,10 +4,10 @@ DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
 TORCH_GPU_ID: 0
 NUM_ENVIRONMENTS: 6
-TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p2
-CHECKPOINT_FOLDER: data/checkpoints/evoenc_p2
-EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p2
-RESULTS_DIR: data/checkpoints/evoenc_p2/evals
+TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_realscene_ptft
+CHECKPOINT_FOLDER: data/checkpoints/evoenc_realscene_ptft
+EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_realscene_ptft
+RESULTS_DIR: data/checkpoints/evoenc_realscene_ptft/evals
 
 PRETRAIN:
   stage: REALSCENE
@@ -18,7 +18,8 @@ PRETRAIN:
     batch_size: 64
     loss_weights: [0.34, 0.4, 0.6, 1.0]
     load_from_ckpt: True
-    ckpt_to_load: data/checkpoints/evoenc_p1/ckpt.EEPolicy.5.pth
+    ckpt_to_load: data/checkpoints/evoenc_p2/s3.pth
+    epochs: 3
     folder: "/root/autodl-tmp/realscene"
 
 MODEL:
