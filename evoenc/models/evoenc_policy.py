@@ -19,7 +19,9 @@ from habitat_baselines.rl.ppo.policy import Net
 from torch import Tensor
 
 from evoenc.common.aux_losses import AuxLosses
-from transformers import CLIPVisionModel, BertModel
+from transformers import CLIPVisionModel, BertModel, RobertaModel, AutoModel
+from transformers import BertConfig
+from sentence_transformers import SentenceTransformer
 
 # from vlnce_baselines.models.encoders import resnet_encoders
 from evoenc.models.encoders.transformer_encoder import Transformer, LayerNorm
@@ -28,7 +30,7 @@ from evoenc.models.encoders.rnn_state_encoder import (
 )
 from evoenc.models.policy import ILPolicy
 
-CLS = 0
+RGB = 0
 DEP = 1
 INS = 2
 SUB = 3
@@ -60,6 +62,30 @@ def positionalencoding1d(length, d_model):
     pe[:, 1::2] = torch.cos(position.float() * div_term)
 
     return pe
+
+
+def sub_mean_pooling(model_output, attention_mask):
+    token_embeddings = model_output[
+        0
+    ]  # First element of model_output contains all token embeddings
+    input_mask_expanded = (
+        attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    )
+    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
+        input_mask_expanded.sum(1), min=1e-9
+    )
+
+
+class ReconstructionLayer(nn.Module):
+    def __init__(self, hidden_size, out_size):
+        super().__init__()
+        self.dense = nn.Linear(hidden_size, out_size)
+        self.activation = nn.Tanh()
+
+    def forward(self, x):
+        x = self.dense(x)
+        x = self.activation(x)
+        return x
 
 
 @baseline_registry.register_policy
@@ -134,39 +160,43 @@ class EENet(Net):
         self._masked_feature_ratio = config.PRETRAIN.masked_feature_ratio
 
         # Init the CLIP rgb encoder
-        self.clip_encoder = CLIPVisionModel.from_pretrained(config.MODEL.CLIP.model_name)
-        self.rgb_ln = nn.LayerNorm(model_config.CLIP.hidden_size)
+        self.clip_encoder = CLIPVisionModel.from_pretrained(
+            config.MODEL.CLIP.model_name
+        )
         # Init the TAC depth encoder
         self.tac_encoder = CLIPVisionModel.from_pretrained(config.MODEL.TAC.model_name)
-        self.depth_ln = nn.LayerNorm(model_config.TAC.hidden_size)
         # Init the BERT text encoder
-        self.bert_encoder = BertModel.from_pretrained(config.MODEL.BERT.model_name)
-        self.inst_ln = nn.LayerNorm(model_config.BERT.hidden_size)
-        self.sub_ln = nn.LayerNorm(model_config.BERT.hidden_size)
-
+        self.roberta_encoder = RobertaModel.from_pretrained(
+            config.MODEL.BERT.model_name
+        )
+        # Init the SentenceBERT sub encoder
+        # self.sbert_encoder = SentenceTransformer(config.MODEL.SBERT.model_name)
+        self.sbert_encoder = AutoModel.from_pretrained(config.MODEL.SBERT.model_name)
+        # Set trainable
+        for param in self.clip_encoder.parameters():
+            param.requires_grad_(config.MODEL.CLIP.trainable)
+        for param in self.tac_encoder.parameters():
+            param.requires_grad_(config.MODEL.TAC.trainable)
+        for param in self.roberta_encoder.parameters():
+            param.requires_grad_(config.MODEL.BERT.trainable)
+        for param in self.sbert_encoder.parameters():
+            param.requires_grad_(config.MODEL.SBERT.trainable)
 
         self.rgb_fc = nn.Sequential(
-            nn.LayerNorm(model_config.CLIP.vit_size),
-            nn.Dropout(p=self.model_config.EVOENC.dropout),
-            nn.Linear(self.model_config.CLIP.vit_size, self._hidden_size),
-            nn.ReLU(inplace=False),
+            # nn.LayerNorm(model_config.CLIP.hidden_size),
+            nn.Dropout(p=model_config.EVOENC.dropout),
         )
         self.depth_fc = nn.Sequential(
-            nn.Dropout(p=self.model_config.EVOENC.dropout),
-            nn.Linear(self.model_config.DEPTH_ENCODER.single_size, self._hidden_size),
-            nn.ReLU(inplace=False),
+            # nn.LayerNorm(model_config.TAC.hidden_size),
+            nn.Dropout(p=model_config.EVOENC.dropout),
         )
         self.inst_fc = nn.Sequential(
-            nn.LayerNorm(model_config.CLIP.output_size),
-            nn.Dropout(p=self.model_config.EVOENC.dropout),
-            nn.Linear(self.model_config.CLIP.output_size, self._hidden_size),
-            nn.ReLU(inplace=False),
+            # nn.LayerNorm(model_config.BERT.hidden_size),
+            nn.Dropout(p=model_config.EVOENC.dropout),
         )
         self.sub_fc = nn.Sequential(
-            nn.LayerNorm(model_config.CLIP.output_size),
-            nn.Dropout(p=self.model_config.EVOENC.dropout),
-            nn.Linear(self.model_config.CLIP.output_size, self._hidden_size),
-            nn.ReLU(inplace=False),
+            # nn.LayerNorm(model_config.SBERT.hidden_size),
+            nn.Dropout(p=model_config.EVOENC.dropout),
         )
         self.window_size = model_config.EVOENC.window_size
         self.rgb_len = model_config.EVOENC.rgb_len
@@ -194,18 +224,23 @@ class EENet(Net):
         # 0:[rgb], 1:[dep], 2:[inst], 3:[sub]
         self.token_embedding = nn.Parameter(torch.empty(4, self._hidden_size))
 
-        if self.model_config.EVOENC.pre_ln:
+        if model_config.EVOENC.pre_ln:
             self.pre_ln = nn.LayerNorm(self._hidden_size)
-            self.pre_dropout = nn.Dropout(p=self.model_config.EVOENC.pre_dropout)
-        self.transformer = Transformer(
-            width=self._hidden_size,
-            layers=self._transformer_layers,
-            heads=self._transformer_heads,
-            dropout=self._inner_dropout,
+            self.pre_dropout = nn.Dropout(p=model_config.EVOENC.pre_dropout)
+        bert_config = BertConfig(
+            hidden_size=self._hidden_size,
+            num_hidden_layers=self._transformer_layers,
+            num_attention_heads=self._transformer_heads,
+            hidden_dropout_prob=self._inner_dropout,
+            attention_probs_dropout_prob=self._inner_dropout,
+            position_embedding_type="relative_key_query",
+            type_vocab_size=4,
         )
-        if self.model_config.EVOENC.post_ln:
+        self.transformer = BertModel(bert_config)
+        del self.transformer.embeddings.word_embeddings  # useless word embeddings
+        if model_config.EVOENC.post_ln:
             self.post_ln = nn.LayerNorm(self._hidden_size)
-            self.post_dropout = nn.Dropout(p=self.model_config.EVOENC.post_dropout)
+            self.post_dropout = nn.Dropout(p=model_config.EVOENC.post_dropout)
 
         if model_config.STATE_ENCODER.num_layers_action == 1:
             dropout_ratio_rnn = 0.0
@@ -254,7 +289,7 @@ class EENet(Net):
         input_size = self._hidden_size
         # self.aggregate_ln = nn.LayerNorm(input_size)
         self.aggregate_ln = nn.LayerNorm(input_size)
-        if self.model_config.EVOENC.aggregate == "cat":
+        if model_config.EVOENC.aggregate == "cat":
             self._output_size = self._hidden_size * 4
             self.aggregate_ln = nn.Identity()
 
@@ -267,39 +302,39 @@ class EENet(Net):
 
         # Init the progress monitor
         self.progress_monitor = nn.Linear(self._output_size, 1)
-        if self.model_config.PROGRESS_MONITOR.use:
+        if model_config.PROGRESS_MONITOR.use:
             nn.init.kaiming_normal_(self.progress_monitor.weight, nonlinearity="tanh")
             nn.init.constant_(self.progress_monitor.bias, 0)
 
         # For pretrain, define some heads
-        if self.model_config.EVOENC.learnable_mask:
+        if model_config.EVOENC.learnable_mask:
             self.mask_embedding = nn.Parameter(torch.empty(1, 768))
         if self.config.PRETRAIN.stage != "NONE":
             # masked feature reconstruction
-            self.rgb_reconstruction = nn.Linear(
-                self._hidden_size, self.model_config.CLIP.vit_size
+            self.rgb_reconstruction = ReconstructionLayer(
+                self._hidden_size, model_config.CLIP.hidden_size
             )
-            self.depth_reconstruction = nn.Linear(
-                self._hidden_size, self.model_config.DEPTH_ENCODER.single_size
+            self.depth_reconstruction = ReconstructionLayer(
+                self._hidden_size, model_config.TAC.hidden_size
             )
-            self.inst_reconstruction = nn.Linear(
-                self._hidden_size, self.model_config.CLIP.output_size
+            self.inst_reconstruction = ReconstructionLayer(
+                self._hidden_size, model_config.BERT.hidden_size
             )
-            self.sub_reconstruction = nn.Linear(
-                self._hidden_size, self.model_config.CLIP.output_size
+            self.sub_reconstruction = ReconstructionLayer(
+                self._hidden_size, model_config.SBERT.hidden_size
             )
             # mean feature reconstruction
-            self.mean_rgb_reconstruction = nn.Linear(
-                self._hidden_size, self.model_config.CLIP.vit_size
+            self.mean_rgb_reconstruction = ReconstructionLayer(
+                self._hidden_size, model_config.CLIP.hidden_size
             )
-            self.mean_depth_reconstruction = nn.Linear(
-                self._hidden_size, self.model_config.DEPTH_ENCODER.single_size
+            self.mean_depth_reconstruction = ReconstructionLayer(
+                self._hidden_size, model_config.TAC.hidden_size
             )
-            self.mean_inst_reconstruction = nn.Linear(
-                self._hidden_size, self.model_config.CLIP.output_size
+            self.mean_inst_reconstruction = ReconstructionLayer(
+                self._hidden_size, model_config.BERT.hidden_size
             )
-            self.mean_sub_reconstruction = nn.Linear(
-                self._hidden_size, self.model_config.CLIP.output_size
+            self.mean_sub_reconstruction = ReconstructionLayer(
+                self._hidden_size, model_config.SBERT.hidden_size
             )
             # feature type prediction
             # self.type_prediction = nn.Linear(self._hidden_size, 4)
@@ -343,25 +378,33 @@ class EENet(Net):
     @property
     def num_recurrent_layers(self) -> int:
         return self._num_recurrent_layers
+
     def encode_rgb(self, observations):
-        if "rgb_seq_features" in observations: # [B, L_rgb, D]
+        if "rgb_seq_features" in observations:  # [B, L_rgb, D]
             rgb_seq_features = observations["rgb_seq_features"]
         else:
             rgb_observations = observations["rgb"]
-            rgb_seq_features = self.clip_encoder(pixel_values=rgb_observations).last_hidden_state
+            rgb_seq_features = self.clip_encoder(
+                pixel_values=rgb_observations
+            ).last_hidden_state
             rgb_seq_features = F.normalize(rgb_seq_features, dim=-1)
         return rgb_seq_features
+
     def encode_depth(self, observations):
-        if "depth_seq_features" in observations: # [B, L_depth, D]
+        if "depth_seq_features" in observations:  # [B, L_depth, D]
             depth_seq_features = observations["depth_seq_features"]
         else:
             depth_observations = observations["depth"]
-            depth_seq_features = self.tac_encoder(pixel_values=depth_observations).last_hidden_state
+            depth_seq_features = self.tac_encoder(
+                pixel_values=depth_observations
+            ).last_hidden_state
             depth_seq_features = F.normalize(depth_seq_features, dim=-1)
         return depth_seq_features
+
     def encode_inst(self, observations):
+        # In roberta, attention mask=1 is words, =0 is padding
         if "inst_seq_features" in observations:
-            inst_seq_features = observations["inst_seq_features"] # [B, L_isnt, D]
+            inst_seq_features = observations["inst_seq_features"]  # [B, L_isnt, D]
         else:
             inst_observations = observations.get("instruction", None)
             inst_mask = observations.get("instruction_mask", None)
@@ -369,21 +412,30 @@ class EENet(Net):
                 inst_observations = observations.get("text", None)
                 inst_mask = observations.get("text_mask", None)
 
-            inst_seq_features = self.bert_encoder(input_ids=inst_observations, attention_mask=inst_mask).last_hidden_state
-        return inst_seq_features
+            inst_seq_features = self.roberta_encoder(
+                input_ids=inst_observations, attention_mask=inst_mask
+            ).last_hidden_state
+        return inst_seq_features, inst_mask
+
     def encode_sub(self, observations):
+        # In sentence bert, attention mask=1 is words, =0 is padding
         if "sub_seq_features" in observations:
             sub_seq_features = observations["sub_seq_features"]  # [B, L_sub, D]
         else:
             sub_observations = observations.get("sub_instruction", None)
             sub_mask = observations.get("sub_instruction_mask", None)
-            if inst_observations is None:
-                inst_observations = observations.get("sub", None)
-                inst_mask = observations.get("sub_mask", None)
-
-            inst_seq_features = self.bert_encoder(input_ids=inst_observations, attention_mask=inst_mask).last_hidden_state
-        return inst_seq_features
-
+            if sub_observations is None:
+                sub_observations = observations.get("sub", None)
+                sub_mask = observations.get("sub_mask", None)
+            B, S, L = sub_observations.shape
+            model_output = self.sbert_encoder(
+                input_ids=sub_observations.view((B * S, L)),
+                attention_mask=sub_mask.view((B * S, L)),
+            )
+            sub_seq_features = sub_mean_pooling(
+                model_output, sub_mask.view((B * S, L))
+            ).view((B, S, -1))
+        return sub_seq_features, sub_mask.any(dim=-1)
 
     def get_rgb_features(self):
         return self.rgb_features
@@ -405,25 +457,29 @@ class EENet(Net):
         nn.init.normal_(self.type_embedding, std=0.01)
         if self.model_config.EVOENC.learnable_mask:
             nn.init.normal_(self.mask_embedding, std=0.02)
-        proj_std = (self._hidden_size**-0.5) * ((2 * self._transformer_heads) ** -0.5)
-        attn_std = self._hidden_size**-0.5
-        fc_std = (2 * self._hidden_size) ** -0.5
-        for block in self.transformer.resblocks:
-            nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
-            nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
-            nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
-            nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
+        # proj_std = (self._hidden_size**-0.5) * ((2 * self._transformer_heads) ** -0.5)
+        # attn_std = self._hidden_size**-0.5
+        # fc_std = (2 * self._hidden_size) ** -0.5
+        # for block in self.transformer.resblocks:
+        #     nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
+        #     nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
+        #     nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
+        #     nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
         # nn.init.normal_(self.rgb_fc[0].weight, std=self._hidden_size ** -0.5)
         # nn.init.normal_(self.depth_fc[0].weight, std=self._hidden_size ** -0.5)
         # nn.init.normal_(self.inst_fc[0].weight, std=self._hidden_size ** -0.5)
         # nn.init.normal_(self.sub_fc[0].weight, std=self._hidden_size ** -0.5)
 
-    def _t_forward(self, seq_embedding, attn_mask=None):
+    def _t_forward(self, seq_embedding, attention_mask=None, token_type_ids=None):
         ## Transformer
         if self.model_config.EVOENC.pre_ln:
             seq_embedding = self.pre_ln(seq_embedding)
             seq_embedding = self.pre_dropout(seq_embedding)
-        seq_out = self.transformer(seq_embedding, attn_mask)
+        seq_out = self.transformer(
+            inputs_embeds=seq_embedding,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+        ).last_hidden_state
         if self.model_config.EVOENC.post_ln:
             seq_out = self.post_ln(seq_out)
             seq_out = self.post_dropout(seq_out)
@@ -439,16 +495,22 @@ class EENet(Net):
         # Embedding
         rgb_seq_features = self.encode_rgb(observations)
         depth_seq_features = self.encode_depth(observations)
-        inst_seq_features = self.encode_inst(observations)
+        inst_seq_features, inst_mask = self.encode_inst(observations)
+        sub_seq_features, sub_mask = self.encode_sub(observations)
+        rgb_embedding_seq = rgb_seq_features
+        depth_embedding_seq = depth_seq_features
+        instruction_embedding = inst_seq_features
+        sub_instruction_embedding = sub_seq_features
+        rgb_embedding = rgb_seq_features[:, 0, :]
 
         # (T*N,D) -> (T*N,W,D)
         if "rgb_seq_features" not in observations:  # No dagger or eval
             # Cached features
-            self.rgb_seq_features = rgb_embedding_seq
-            self.rgb_features = rgb_embedding
-            self.depth_seq_features = self.depth_encoder.get_depth_seq_features()
-            self.inst_features = instruction_embedding
-            self.sub_features = sub_instruction_embedding
+            self.rgb_seq_features = rgb_seq_features
+            self.rgb_features = rgb_seq_features
+            self.depth_seq_features = depth_seq_features
+            self.inst_features = inst_seq_features
+            self.sub_features = sub_seq_features
         if self.model_config.EVOENC.prev_action:
             prev_actions = self.prev_action_embedding(
                 ((prev_actions.float() + 1) * masks).long().view(-1)
@@ -456,7 +518,7 @@ class EENet(Net):
 
         # FC
         rgb_embedding_seq = torch.cat(
-            [rgb_embedding.unsqueeze(2), rgb_embedding_seq], dim=2
+            [rgb_seq_features.unsqueeze(2), rgb_embedding_seq], dim=2
         ).permute(
             0, 2, 1
         )  # (N, D, L+1)
@@ -469,7 +531,7 @@ class EENet(Net):
         ## Construct input sequence
         # Token
         token_embeddings = self.token_embedding.expand(
-            (rgb_embedding.shape[0], -1, -1)
+            (rgb_embedding_seq.shape[0], -1, -1)
         ).clone()
         # Concat
         seq_embedding = torch.cat(
@@ -540,19 +602,19 @@ class EENet(Net):
             (T_N, self._transformer_heads, self.total_len, self.total_len), dtype=bool
         ).to(rgb_embedding.device)
         # (T*N, Linst) -> (T*N, heads, Linst, Linst)
-        mask_inst = (
-            mask_inst.unsqueeze(1)
+        inst_mask = (
+            inst_mask.unsqueeze(1)
             .unsqueeze(1)
             .expand(-1, self._transformer_heads, self.total_len, -1)
         )
-        mask_sub = (
-            mask_sub.unsqueeze(1)
+        sub_mask = (
+            sub_mask.unsqueeze(1)
             .unsqueeze(1)
             .expand(-1, self._transformer_heads, self.total_len, -1)
         )
         # Fill
-        attn_mask[:, :, :, start_inst : start_sub - 1] = mask_inst
-        attn_mask[:, :, :, start_sub:] = mask_sub
+        attn_mask[:, :, :, start_inst : start_sub - 1] = inst_mask
+        attn_mask[:, :, :, start_sub:] = sub_mask
         attn_mask = attn_mask.reshape((-1, self.total_len, self.total_len))
         self.attn_mask = attn_mask
 
@@ -623,7 +685,7 @@ class EENet(Net):
         return x, rnn_states_out
 
     def _feature_mask(self, feature, pad_mask=None):
-        """True position in mask is masked"""
+        """True position IS NOT masked, False position IS masked"""
         ratio = self._masked_feature_ratio
         mask_embedding = 0
         if self.model_config.EVOENC.learnable_mask:
@@ -631,17 +693,17 @@ class EENet(Net):
         if pad_mask is not None:
             # for instruction
             N = feature.shape[0]
-            lengths = pad_mask.logical_not().sum(dim=1)
-            mask = torch.zeros_like(pad_mask, dtype=bool, device=feature.device)
+            lengths = pad_mask.sum(dim=1)
+            mask = torch.ones_like(pad_mask, dtype=bool, device=feature.device)
             for i in range(N):
                 num = int(lengths[i] * ratio)
                 if num == 0 and lengths[i] >= 2:
                     num = 1
                 pos = torch.randperm(lengths[i])[:num]
-                mask[i][pos] = True
+                mask[i][pos] = False
             masked_feature = feature.clone()
-            masked_feature[pad_mask] = 0
-            masked_feature[mask] = mask_embedding
+            masked_feature[pad_mask.logical_not()] = 0
+            masked_feature[mask.logical_not()] = mask_embedding
             return masked_feature, mask
         else:
             # for vision
@@ -649,43 +711,40 @@ class EENet(Net):
             L = feature.shape[1]
             num = int(L * ratio)
             pos = torch.randperm(L)[:num]
-            mask = torch.zeros((N, L), dtype=bool, device=feature.device)
-            mask[:, pos] = True
+            mask = torch.ones((N, L), dtype=bool, device=feature.device)
+            mask[:, pos] = False
             masked_feature = feature.clone()
             # unable to use masked_feature[mask] = 0 with determinstic algorithms
             # masked_feature.masked_fill_(mask.unsqueeze(2).to(feature.device),0)
-            masked_feature[mask] = mask_embedding
+            masked_feature[mask.logical_not()] = mask_embedding
             return masked_feature, mask
 
     def stage1_forward(self, observations, positive=True):
         # Batch info
-        # N = observations["rgb"].shape[0]
+        B = observations["rgb"].shape[0]
+        device = observations["rgb"].device
 
         # Embedding
-        rgb_seq_features = self.rgb_ln(self.encode_rgb(observations))
-        depth_seq_features = self.depth_ln(self.encode_depth(observations))
-        inst_seq_features = self.inst_ln(self.encode_inst(observations))
-        sub_seq_features = self.sub_ln(self.encode_sub(observations))
+        rgb_seq_features = self.encode_rgb(observations)
+        depth_seq_features = self.encode_depth(observations)
+        inst_seq_features, inst_mask = self.encode_inst(observations)
+        sub_seq_features, sub_mask = self.encode_sub(observations)
 
         # Cached features
-        self.rgb_seq_features = rgb_embedding_seq.detach().clone()
-        self.depth_seq_features = (
-            depth_embedding_seq.detach().clone()
-        )  # self.depth_encoder.get_depth_seq_features()
-        self.inst_features = instruction_embedding.detach().clone()
-        self.sub_features = sub_instruction_embedding.detach().clone()
+        self.rgb_seq_features = rgb_seq_features.detach().clone()
+        self.depth_seq_features = depth_seq_features.detach().clone()
+        self.inst_features = inst_seq_features.detach().clone()
+        self.sub_features = sub_seq_features.detach().clone()
 
         # Masked features
         # feature masks only catch the masked positions, without padding positions
+        rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_seq_features)
+        depth_embedding_seq, feature_mask_depth = self._feature_mask(depth_seq_features)
         instruction_embedding, feature_mask_inst = self._feature_mask(
-            instruction_embedding, pad_mask=mask_inst
+            inst_seq_features, pad_mask=inst_mask
         )
         sub_instruction_embedding, feature_mask_sub = self._feature_mask(
-            sub_instruction_embedding, pad_mask=mask_sub
-        )
-        rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_embedding_seq)
-        depth_embedding_seq, feature_mask_depth = self._feature_mask(
-            depth_embedding_seq
+            sub_seq_features, pad_mask=sub_mask
         )
 
         # FC
@@ -701,7 +760,7 @@ class EENet(Net):
         loss_mean = 0
         # Token
         token_embeddings = self.token_embedding.expand(
-            (rgb_embedding.shape[0], -1, -1)
+            (rgb_embedding_seq.shape[0], -1, -1)
         ).clone()
 
         #################################################
@@ -715,29 +774,21 @@ class EENet(Net):
             ],
             dim=1,
         )
-        # Extra embedding
-        if self.pe_type == "pt":
-            a = self.positional_embedding[0 : self.rgb_len + 1, :]
-            split_position_embedding = torch.cat([a], dim=0).expand(
-                (seq_rgb_embedding.shape[0], -1, -1)
-            )
-            a = self.type_embedding[0:1, :].repeat((self.rgb_len + 1, 1))
-            token_ids_embedding = torch.cat([a], dim=0).expand(
-                (seq_rgb_embedding.shape[0], -1, -1)
-            )
-            seq_rgb_embedding = (
-                seq_rgb_embedding + split_position_embedding + token_ids_embedding
-            )
+        # Modality type ids
+        B, L, D = seq_rgb_embedding.shape
+        rgb_type_ids = torch.ones((B, L), dtype=int, device=device) * RGB
 
         # Transformer blocks
-        seq_rgb_out = self._t_forward(seq_rgb_embedding)
+        seq_rgb_out = self._t_forward(seq_rgb_embedding, token_type_ids=rgb_type_ids)
 
         # split output sequence
         rgb_cls = seq_rgb_out[:, 0, :]
-        rgb_out = seq_rgb_out[:, 1 : self.rgb_len + 1, :]
+        rgb_out = seq_rgb_out[:, 1:, :]
         # mask feature reconstruction
-        rgb_rec = self.rgb_reconstruction(rgb_out[feature_mask_rgb])
-        loss_rec += F.mse_loss(rgb_rec, self.rgb_seq_features[feature_mask_rgb])
+        rgb_rec = self.rgb_reconstruction(rgb_out[feature_mask_rgb.logical_not()])
+        loss_rec += F.mse_loss(
+            rgb_rec, self.rgb_seq_features[feature_mask_rgb.logical_not()]
+        )
         # mean feature reconstruction
         rgb_mean_gt = self.rgb_seq_features.mean(dim=1)
         rgb_mean_rec = self.mean_rgb_reconstruction(rgb_cls)
@@ -754,27 +805,25 @@ class EENet(Net):
             ],
             dim=1,
         )
-        # Extra embedding
-        if self.pe_type == "pt":
-            b = self.positional_embedding[0 : self.depth_len + 1, :]
-            split_position_embedding = torch.cat([b], dim=0).expand(
-                (seq_depth_embedding.shape[0], -1, -1)
-            )
-            b = self.type_embedding[1:2, :].repeat((self.depth_len + 1, 1))
-            token_ids_embedding = torch.cat([b], dim=0).expand(
-                (seq_depth_embedding.shape[0], -1, -1)
-            )
-            seq_depth_embedding = (
-                seq_depth_embedding + split_position_embedding + token_ids_embedding
-            )
+        # Modality type ids
+        B, L, D = seq_depth_embedding.shape
+        depth_type_ids = torch.ones((B, L), dtype=int, device=device) * DEP
+
         # Transformer blocks
-        seq_depth_out = self._t_forward(seq_depth_embedding)
+        seq_depth_out = self._t_forward(
+            seq_depth_embedding, token_type_ids=depth_type_ids
+        )
+
         # split output sequence
         depth_cls = seq_depth_out[:, 0, :]
-        depth_out = seq_depth_out[:, 1 : self.depth_len + 2 :, :]
+        depth_out = seq_depth_out[:, 1:, :]
         # mask feature reconstruction
-        depth_rec = self.depth_reconstruction(depth_out[feature_mask_depth])
-        loss_rec += F.mse_loss(depth_rec, self.depth_seq_features[feature_mask_depth])
+        depth_rec = self.depth_reconstruction(
+            depth_out[feature_mask_depth.logical_not()]
+        )
+        loss_rec += F.mse_loss(
+            depth_rec, self.depth_seq_features[feature_mask_depth.logical_not()]
+        )
         # mean feature reconstruction
         depth_mean_gt = self.depth_seq_features.mean(dim=1)
         depth_mean_rec = self.mean_depth_reconstruction(depth_cls)
@@ -790,45 +839,31 @@ class EENet(Net):
             ],
             dim=1,
         )
-        if self.pe_type == "pt":
-            c = self.positional_embedding[0 : self.instruction_len + 1, :]
-            split_position_embedding = torch.cat([c], dim=0).expand(
-                (seq_inst_embedding.shape[0], -1, -1)
-            )
-            c = self.type_embedding[2:3, :].repeat((self.instruction_len + 1, 1))
-            token_ids_embedding = torch.cat([c], dim=0).expand(
-                (seq_inst_embedding.shape[0], -1, -1)
-            )
-            seq_inst_embedding = (
-                seq_inst_embedding + split_position_embedding + token_ids_embedding
-            )
-        start_inst = 1
-        T_N = seq_inst_embedding.shape[0]
-        # (T*N, heads, L, L)
-        inst_len = 1 + self.instruction_len
-        attn_mask = torch.zeros(
-            (T_N, self._transformer_heads, inst_len, inst_len), dtype=bool
-        ).to(rgb_embedding.device)
-        # Fill, (T*N, Linst) -> (T*N, heads, Linst, Linst)
-        attn_mask[:, :, :, start_inst:] = (
-            mask_inst.unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, self._transformer_heads, inst_len, -1)
-        )
-        attn_mask = attn_mask.reshape((-1, inst_len, inst_len))
+        # Modality type ids
+        B, L, D = seq_inst_embedding.shape
+        inst_type_ids = torch.ones((B, L), dtype=int, device=device) * INS
+
+        # Attention mask
+        attn_mask = torch.ones((B, L), dtype=int, device=device)
+        attn_mask[:, 1:] = inst_mask
+
         # Transformer blocks
-        seq_inst_out = self._t_forward(seq_inst_embedding, attn_mask)
+        seq_inst_out = self._t_forward(
+            seq_inst_embedding, attention_mask=attn_mask, token_type_ids=inst_type_ids
+        )
+
         # split output sequence
         inst_cls = seq_inst_out[:, 0, :]
-        inst_out = seq_inst_out[:, 1 : self.instruction_len + 1, :]
+        inst_out = seq_inst_out[:, 1:, :]
         # mask feature reconstruction
-        inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst])
+        inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst.logical_not()])
         loss_rec += (
-            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst]) / COEF_REC_INST
+            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst.logical_not()])
+            / COEF_REC_INST
         )
         # mean feature reconstruction
         inst_mean_gt = self.inst_features.sum(dim=1) / (
-            (~mask_inst).sum(dim=1, keepdim=True) + EPS
+            inst_mask.sum(dim=1, keepdim=True) + EPS
         )
         inst_mean_rec = self.mean_inst_reconstruction(inst_cls)
         loss_mean += F.mse_loss(inst_mean_rec, inst_mean_gt)
@@ -843,43 +878,30 @@ class EENet(Net):
             ],
             dim=1,
         )
-        if self.pe_type == "pt":
-            d = self.positional_embedding[0 : self.sub_len + 1, :]
-            split_position_embedding = torch.cat([d], dim=0).expand(
-                (seq_sub_embedding.shape[0], -1, -1)
-            )
-            d = self.type_embedding[3:4, :].repeat((self.sub_len + 1, 1))
-            token_ids_embedding = torch.cat([d], dim=0).expand(
-                (seq_sub_embedding.shape[0], -1, -1)
-            )
-            seq_sub_embedding = (
-                seq_sub_embedding + split_position_embedding + token_ids_embedding
-            )
-        start_sub = 1
-        T_N = seq_sub_embedding.shape[0]
-        # (T*N, heads, L, L)
-        sub_len = 1 + self.sub_len
-        attn_mask = torch.zeros(
-            (T_N, self._transformer_heads, sub_len, sub_len), dtype=bool
-        ).to(rgb_embedding.device)
-        # Fill, (T*N, Linst) -> (T*N, heads, Linst, Linst)
-        attn_mask[:, :, :, start_sub:] = (
-            mask_sub.unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, self._transformer_heads, sub_len, -1)
-        )
-        attn_mask = attn_mask.reshape((-1, sub_len, sub_len))
+        # Modality type ids
+        B, L, D = seq_sub_embedding.shape
+        sub_type_ids = torch.ones((B, L), dtype=int, device=device) * SUB
+
+        # Attention mask
+        attn_mask = torch.ones((B, L), dtype=int, device=device)
+        attn_mask[:, 1:] = sub_mask
+
         # Transformer blocks
-        seq_sub_out = self._t_forward(seq_sub_embedding, attn_mask)
+        seq_sub_out = self._t_forward(
+            seq_sub_embedding, attention_mask=attn_mask, token_type_ids=sub_type_ids
+        )
+
         # split output sequence
         sub_cls = seq_sub_out[:, 0, :]
         sub_out = seq_sub_out[:, 1:, :]
         # mask feature reconstruction
-        sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub])
-        loss_rec += F.mse_loss(sub_rec, self.sub_features[feature_mask_sub])
+        sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub.logical_not()])
+        loss_rec += F.mse_loss(
+            sub_rec, self.sub_features[feature_mask_sub.logical_not()]
+        )
         # mean feature reconstruction
         sub_mean_gt = self.sub_features.sum(dim=1) / (
-            (~mask_sub).sum(dim=1, keepdim=True) + EPS
+            sub_mask.sum(dim=1, keepdim=True) + EPS
         )
         sub_mean_rec = self.mean_sub_reconstruction(sub_cls)
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)
@@ -907,11 +929,11 @@ class EENet(Net):
 
         # Embedding
         instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
-        mask_inst = (instruction_embedding == 0).all(dim=2)
+        inst_mask = (instruction_embedding == 0).all(dim=2)
         sub_instruction_embedding = self.clip_encoder.encode_sub_instruction(
             observations
         )  # (N,L,D)
-        mask_sub = (sub_instruction_embedding == 0).all(dim=2)
+        sub_mask = (sub_instruction_embedding == 0).all(dim=2)
         depth_embedding, depth_embedding_seq = self.depth_encoder.encode_depth(
             observations
         )  # (N,D), (N,D,L)
@@ -936,10 +958,10 @@ class EENet(Net):
         # Masked features
         # feature masks only catch the masked positions, without padding positions
         instruction_embedding, feature_mask_inst = self._feature_mask(
-            instruction_embedding, pad_mask=mask_inst
+            instruction_embedding, pad_mask=inst_mask
         )
         sub_instruction_embedding, feature_mask_sub = self._feature_mask(
-            sub_instruction_embedding, pad_mask=mask_sub
+            sub_instruction_embedding, pad_mask=sub_mask
         )
         rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_embedding_seq)
         depth_embedding_seq, feature_mask_depth = self._feature_mask(
@@ -1046,12 +1068,12 @@ class EENet(Net):
         ).to(rgb_embedding.device)
         # Fill, (T*N, Linst) -> (T*N, heads, Linst, Linst)
         attn_mask[:, :, :, start_inst : start_sub - 1] = (
-            mask_inst.unsqueeze(1)
+            inst_mask.unsqueeze(1)
             .unsqueeze(1)
             .expand(-1, self._transformer_heads, language_len, -1)
         )
         attn_mask[:, :, :, start_sub:] = (
-            mask_sub.unsqueeze(1)
+            sub_mask.unsqueeze(1)
             .unsqueeze(1)
             .expand(-1, self._transformer_heads, language_len, -1)
         )
@@ -1074,12 +1096,12 @@ class EENet(Net):
         loss_rec += F.mse_loss(sub_rec, self.sub_features[feature_mask_sub])
         # mean feature reconstruction
         inst_mean_gt = self.inst_features.sum(dim=1) / (
-            (~(mask_inst[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            (~(inst_mask[positive_idx])).sum(dim=1, keepdim=True) + EPS
         )
         inst_mean_rec = self.mean_inst_reconstruction(inst_cls[positive_idx])
         loss_mean += F.mse_loss(inst_mean_rec, inst_mean_gt)
         sub_mean_gt = self.sub_features.sum(dim=1) / (
-            (~(mask_sub[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            (~(sub_mask[positive_idx])).sum(dim=1, keepdim=True) + EPS
         )
         sub_mean_rec = self.mean_sub_reconstruction(sub_cls[positive_idx])
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)
@@ -1121,11 +1143,11 @@ class EENet(Net):
 
         # Embedding
         instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
-        mask_inst = (instruction_embedding == 0).all(dim=2)
+        inst_mask = (instruction_embedding == 0).all(dim=2)
         sub_instruction_embedding = self.clip_encoder.encode_sub_instruction(
             observations
         )  # (N,L,D)
-        mask_sub = (sub_instruction_embedding == 0).all(dim=2)
+        sub_mask = (sub_instruction_embedding == 0).all(dim=2)
         depth_embedding, depth_embedding_seq = self.depth_encoder.encode_depth(
             observations
         )  # (N,D), (N,D,L)
@@ -1150,10 +1172,10 @@ class EENet(Net):
         # Masked features
         # feature masks only catch the masked positions, without padding positions
         instruction_embedding, feature_mask_inst = self._feature_mask(
-            instruction_embedding, pad_mask=mask_inst
+            instruction_embedding, pad_mask=inst_mask
         )
         sub_instruction_embedding, feature_mask_sub = self._feature_mask(
-            sub_instruction_embedding, pad_mask=mask_sub
+            sub_instruction_embedding, pad_mask=sub_mask
         )
         rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_embedding_seq)
         depth_embedding_seq, feature_mask_depth = self._feature_mask(
@@ -1237,12 +1259,12 @@ class EENet(Net):
         ).to(rgb_embedding.device)
         # Fill
         attn_mask[:, :, :, start_inst : start_sub - 1] = (
-            mask_inst.unsqueeze(1)
+            inst_mask.unsqueeze(1)
             .unsqueeze(1)
             .expand(-1, self._transformer_heads, self.total_len, -1)
         )
         attn_mask[:, :, :, start_sub:] = (
-            mask_sub.unsqueeze(1)
+            sub_mask.unsqueeze(1)
             .unsqueeze(1)
             .expand(-1, self._transformer_heads, self.total_len, -1)
         )
@@ -1291,12 +1313,12 @@ class EENet(Net):
         depth_mean_rec = self.mean_depth_reconstruction(depth_cls[positive_idx])
         loss_mean += F.mse_loss(depth_mean_rec, depth_mean_gt)
         inst_mean_gt = self.inst_features.sum(dim=1) / (
-            (~(mask_inst[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            (~(inst_mask[positive_idx])).sum(dim=1, keepdim=True) + EPS
         )
         inst_mean_rec = self.mean_inst_reconstruction(inst_cls[positive_idx])
         loss_mean += F.mse_loss(inst_mean_rec, inst_mean_gt)
         sub_mean_gt = self.sub_features.sum(dim=1) / (
-            (~(mask_sub[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            (~(sub_mask[positive_idx])).sum(dim=1, keepdim=True) + EPS
         )
         sub_mean_rec = self.mean_sub_reconstruction(sub_cls[positive_idx])
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)

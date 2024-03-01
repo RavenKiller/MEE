@@ -23,14 +23,6 @@ MODEL:
   PROGRESS_MONITOR:
     use: True
     alpha: 1.0
-  DEPTH_ENCODER:
-    output_size: 2048 
-    single_size: 128
-    trainable: False
   EVOENC:
-    rgb_len: 50
     layers: 4
     inner_dropout: 0.1
-  CLIP:
-    downsample_size: 7
-    trainable: False

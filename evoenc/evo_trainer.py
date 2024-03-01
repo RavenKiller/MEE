@@ -31,21 +31,39 @@ from habitat_baselines.utils.common import (
     get_checkpoint_id,
     poll_checkpoint_folder,
 )
-from transformers import AutoProcessor, CLIPImageProcessor, BertTokenizerFast
+from transformers import (
+    AutoProcessor,
+    CLIPImageProcessor,
+    BertTokenizerFast,
+    RobertaTokenizer,
+    AutoTokenizer,
+)
 
 from evoenc.common.aux_losses import AuxLosses
 from evoenc.common.base_il_trainer import BaseVLNCETrainer
 from evoenc.common.env_utils import construct_envs
 from evoenc.common.utils import extract_instruction_tokens
 
+from accelerate import Accelerator
+
+accelerator = Accelerator()
+
 RAND_MIN = 25
 RAND_MAX = 100000
 MIN_DEPTH = 0.0
 MAX_DEPTH = 10.0
 DEPTH_SCALE = 1000.0
-PAD_IDX = 0
-SUB_LEN = 128
-SUB_NUM = 32
+LEN = 256
+PAD_IDX = 1
+SUB_PAD_IDX = 1
+SUB_LEN = 50
+SUB_NUM = 12
+
+
+def get_warmup_scheduler(optimizer, warmup_steps):
+    factor = lambda steps: steps / warmup_steps if steps < warmup_steps else 1.0
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=factor)
+
 
 def stage1_collate_fn(batch):
     # Process different length of videos
@@ -55,34 +73,47 @@ def stage1_collate_fn(batch):
         datas = []
         for ele in batch:
             datas.append(ele[k])
-        B = len(datas)
-        if k=="text": # (B, L)
+        if k == "text":  # (B, L)
             L = max([len(data) for data in datas])
-            datas = [F.pad(data, (0, max(0, L-len(data))), "constant", PAD_IDX) for data in datas]
+            datas = [
+                F.pad(data, (0, max(0, L - len(data))), "constant", PAD_IDX)
+                for data in datas
+            ]
             batch_ret[k] = torch.stack(datas)
-            batch_ret[k+"_mask"] = (batch_ret[k]>0)
-        elif k=="sub": # (B, SUB_NUM, SUB_LEN)
+            batch_ret[k + "_mask"] = batch_ret[k] != PAD_IDX
+        elif k == "sub":  # (B, SUB_NUM, SUB_LEN)
             N_NUM = max([data.shape[0] for data in datas])
             N_LEN = max([max([len(v) for v in data]) for data in datas])
-            datas = [F.pad(data, (0, N_LEN-data.shape[1], 0, N_NUM-data.shape[0]), "constant", PAD_IDX) for data in datas]
+            datas = [
+                F.pad(
+                    data,
+                    (0, N_LEN - data.shape[1], 0, N_NUM - data.shape[0]),
+                    "constant",
+                    SUB_PAD_IDX,
+                )
+                for data in datas
+            ]
             batch_ret[k] = torch.stack(datas)
-            batch_ret[k+"_mask"] = (batch_ret[k]>0)
+            batch_ret[k + "_mask"] = batch_ret[k] != SUB_PAD_IDX
         elif isinstance(datas[0], torch.Tensor):
             batch_ret[k] = torch.stack(datas)
         else:
             batch_ret[k] = datas
     return batch_ret
+
+
 class Stage1Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
         config,
         split="train",
+        data_frac=0.75,
     ):
         super().__init__()
         self.config = config
         folder = Path(config.PRETRAIN.STAGE1.folder)
-        if os.path.exists(folder/"stage1_files.json"):
-            with open(folder/"stage1_files.json", "r") as f:
+        if os.path.exists(folder / "stage1_files.json"):
+            with open(folder / "stage1_files.json", "r") as f:
                 files = json.load(f)
             self.rgb = files["rgb"]
             self.depth = files["depth"]
@@ -99,18 +130,27 @@ class Stage1Dataset(torch.utils.data.Dataset):
                 "text": [str(v) for v in self.text],
                 "sub": [str(v) for v in self.sub],
             }
-            with open(folder/"stage1_files.json", "w") as f:
+            with open(folder / "stage1_files.json", "w") as f:
                 json.dump(files, f)
-
-        self.rgb_processor = CLIPImageProcessor.from_pretrained(config.MODEL.CLIP.model_name)
+        self.data_frac = data_frac
+        self.rgb_processor = CLIPImageProcessor.from_pretrained(
+            config.MODEL.CLIP.model_name
+        )
         self.depth_processor = CLIPImageProcessor.from_pretrained(
-                config.MODEL.TAC.model_name
-            )
-        self.text_processor = BertTokenizerFast.from_pretrained(config.MODEL.BERT.model_name)
-        self.sub_processor = self.text_processor
+            config.MODEL.TAC.model_name
+        )
+        self.text_processor = RobertaTokenizer.from_pretrained(
+            config.MODEL.BERT.model_name
+        )
+        self.sub_processor = AutoTokenizer.from_pretrained(
+            config.MODEL.SBERT.model_name
+        )
 
     def __len__(self):
-        return max(len(self.rgb), len(self.depth), len(self.text), len(self.sub))
+        return int(
+            self.data_frac
+            * max(len(self.rgb), len(self.depth), len(self.text), len(self.sub))
+        )
 
     def __getitem__(self, idx):
         rgb_path = self.rgb[idx % len(self.rgb)]
@@ -119,21 +159,15 @@ class Stage1Dataset(torch.utils.data.Dataset):
         sub_path = self.sub[idx % len(self.sub)]
 
         rgb = Image.open(rgb_path)
-        rgb = self.rgb_processor(images=rgb, return_tensors="pt").pixel_values.squeeze(0)
+        rgb = self.rgb_processor(images=rgb, return_tensors="pt").pixel_values.squeeze(
+            0
+        )
 
         depth = Image.open(depth_path)
-        depth = (
-            np.array(depth).astype("float32") / DEPTH_SCALE
-        )  # to meters
-        depth = np.clip(
-            depth, MIN_DEPTH, MAX_DEPTH
-        )  # clip to [MIN_DEPTH, MAX_DEPTH]
-        depth = (depth - MIN_DEPTH) / (
-            MAX_DEPTH - MIN_DEPTH
-        )  # normalize to [0,1]
-        depth = np.expand_dims(depth, axis=2).repeat(
-            3, axis=2
-        )  # extend to 3 channels
+        depth = np.array(depth).astype("float32") / DEPTH_SCALE  # to meters
+        depth = np.clip(depth, MIN_DEPTH, MAX_DEPTH)  # clip to [MIN_DEPTH, MAX_DEPTH]
+        depth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH)  # normalize to [0,1]
+        depth = np.expand_dims(depth, axis=2).repeat(3, axis=2)  # extend to 3 channels
         depth = self.depth_processor(
             depth,
             do_resize=False,
@@ -145,12 +179,16 @@ class Stage1Dataset(torch.utils.data.Dataset):
 
         with open(text_path, "r") as f:
             text = f.read()
-        text = self.text_processor(text, return_tensors="pt", truncation=True).input_ids.squeeze(0)
+        text = self.text_processor(
+            text, return_tensors="pt", padding=True, truncation=True, max_length=LEN
+        ).input_ids.squeeze(0)
 
         with open(sub_path, "r") as f:
             sub = f.read().split("\n")
-        sub = sub[:min(len(sub),SUB_NUM)]
-        sub = self.sub_processor(sub, return_tensors="pt", padding=True, truncation=True, max_length=SUB_LEN).input_ids
+        sub = sub[: min(len(sub), SUB_NUM)]
+        sub = self.sub_processor(
+            sub, return_tensors="pt", padding=True, truncation=True, max_length=SUB_LEN
+        ).input_ids
 
         return {
             "rgb": rgb,
@@ -158,7 +196,6 @@ class Stage1Dataset(torch.utils.data.Dataset):
             "text": text,
             "sub": sub,
         }
-
 
 
 class Stage2Dataset(torch.utils.data.Dataset):
@@ -224,9 +261,9 @@ class Stage3Dataset(torch.utils.data.Dataset):
         self.depth_num = self.depth.shape[0]
         self.inst_num = self.instructions.shape[0]
         self.sub_num = self.instructions.shape[0]
-        assert self.rgb_num==self.depth_num
-        assert self.rgb_num==self.inst_num
-        assert self.inst_num==self.sub_num
+        assert self.rgb_num == self.depth_num
+        assert self.rgb_num == self.inst_num
+        assert self.inst_num == self.sub_num
 
         self.positive_ratio = positive_ratio  # the positive ratio
         self.inner_ratio = inner_ratio  # the negative inner alignment ratio
@@ -279,13 +316,21 @@ class PreTrainer(BaseVLNCETrainer):
         self._make_ckpt_dir()
         if self.config.EVAL.SAVE_RESULTS:
             self._make_results_dir()
-    def _get_spaces(self, config, envs = None) -> Tuple[Space]:
-        # return super()._get_spaces(config, envs)
-        with open("habitat_extensions/observation_space.pkl","rb") as f:
-            observation_space = pickle.load(f)
-        with open("habitat_extensions/action_space.pkl","rb") as f:
-            action_space = pickle.load(f)
-        return observation_space, action_space
+
+    def _get_spaces(self, config, envs=None) -> Tuple[Space]:
+        if os.path.exists("habitat_extensions/observation_space.pkl"):
+            with open("habitat_extensions/observation_space.pkl", "rb") as f:
+                observation_space = pickle.load(f)
+            with open("habitat_extensions/action_space.pkl", "rb") as f:
+                action_space = pickle.load(f)
+            return observation_space, action_space
+        else:
+            observation_space, action_space = super()._get_spaces(config, envs)
+            with open("habitat_extensions/observation_space.pkl", "wb") as f:
+                pickle.dump(observation_space, f)
+            with open("habitat_extensions/action_space.pkl", "wb") as f:
+                pickle.dump(action_space, f)
+            return observation_space, action_space
 
     def _initialize_policy(
         self, config, observation_space, action_space, train_mode=True
@@ -298,7 +343,7 @@ class PreTrainer(BaseVLNCETrainer):
         )
         self.policy.to(self.device)
         stage_config = None
-        assert config.PRETRAIN.stage in ["STAGE1","STAGE2","STAGE3"]
+        assert config.PRETRAIN.stage in ["STAGE1", "STAGE2", "STAGE3"]
         if config.PRETRAIN.stage == "STAGE1":
             stage_config = config.PRETRAIN.STAGE1
         elif config.PRETRAIN.stage == "STAGE2":
@@ -312,6 +357,7 @@ class PreTrainer(BaseVLNCETrainer):
         self.stage_config = stage_config
 
         self.optimizer = torch.optim.AdamW(self.policy.parameters(), lr=lr)
+        self.scheduler = get_warmup_scheduler(self.optimizer, stage_config.warmup)
         if load_from_ckpt and train_mode:
             ckpt_path = ckpt_to_load
             ckpt_dict = self.load_checkpoint(ckpt_path, map_location="cpu")
@@ -320,6 +366,7 @@ class PreTrainer(BaseVLNCETrainer):
             )
             if config.PRETRAIN.is_requeue:
                 self.optimizer.load_state_dict(ckpt_dict["optim_state"])
+                self.scheduler.load_state_dict(ckpt_dict["scheduler_state"])
                 self.start_epoch = ckpt_dict["epoch"] + 1
                 self.step_id = ckpt_dict["step_id"]
             logger.info(f"Loaded weights from checkpoint: {ckpt_path}")
@@ -371,9 +418,13 @@ class PreTrainer(BaseVLNCETrainer):
             dataset,
             batch_size=self.stage_config.batch_size,
             shuffle=True,
-            num_workers=16,
-            collate_fn = stage1_collate_fn,
+            num_workers=1,
+            collate_fn=stage1_collate_fn,
             # pin_memory=True
+        )
+
+        self.policy, self.optimizer, dataloader, self.scheduler = accelerator.prepare(
+            self.policy, self.optimizer, dataloader, self.scheduler
         )
         writer = SummaryWriter(
             os.path.join(
@@ -387,40 +438,46 @@ class PreTrainer(BaseVLNCETrainer):
         for epoch in tqdm.trange(self.stage_config.epochs, dynamic_ncols=True):
             batch_bar = tqdm.tqdm(
                 dataloader,
-                total=len(dataloader.dataset) // dataloader.batch_size,
+                total=len(dataloader.dataset) // self.stage_config.batch_size,
                 leave=False,
                 dynamic_ncols=True,
             )
             for batch in batch_bar:
                 self.optimizer.zero_grad()
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
-            #     losses = self.policy.net.stage1_forward(batch)
-            #     total_loss = 0
-            #     for i, k in enumerate(losses):
-            #         w = self.stage_config.loss_weights[i]
-            #         total_loss += w * losses[k]
-            #     total_loss.backward()
-            #     if self.max_grad_norm:
-            #         torch.nn.utils.clip_grad_norm_(
-            #             self.policy.parameters(), self.max_grad_norm
-            #         )
-            #     self.optimizer.step()
+                losses = self.policy.net.stage1_forward(batch)
+                total_loss = 0
+                for i, k in enumerate(losses):
+                    w = self.stage_config.loss_weights[i]
+                    total_loss += w * losses[k]
+                # total_loss.backward()
+                accelerator.backward(total_loss)
+                if self.max_grad_norm:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.policy.parameters(), self.max_grad_norm
+                    )
+                self.optimizer.step()
+                self.scheduler.step()
 
-            #     batch_bar.set_description(f"E {epoch}.")
-            #     batch_bar.set_postfix(
-            #         {
-            #             "loss": "%2.4f" % (total_loss),
-            #             "rec": "%2.3f" % (losses["loss_rec"]),
-            #             "mea": "%2.3f" % (losses["loss_mean"]),
-            #         }
-            #     )
-            #     for k in losses:
-            #         writer.add_scalar("loss/%s" % (k), losses[k], iter_num)
-            #     writer.add_scalar("loss/total", total_loss, iter_num)
-            #     iter_num += 1
-            # self.save_checkpoint(
-            #     f"ckpt.{self.config.MODEL.policy_name}.{epoch}.pth"  # to continue train
-            # )
+                batch_bar.set_description(f"E {epoch}.")
+                batch_bar.set_postfix(
+                    {
+                        "loss": "%2.4f" % (total_loss),
+                        "rec": "%2.3f" % (losses["loss_rec"]),
+                        "mea": "%2.3f" % (losses["loss_mean"]),
+                    }
+                )
+                for k in losses:
+                    writer.add_scalar("loss/%s" % (k), losses[k], iter_num)
+                writer.add_scalar("loss/total", total_loss, iter_num)
+                iter_num += 1
+                if iter_num != 0 and iter_num % self.stage_config.save_steps == 0:
+                    self.save_checkpoint(
+                        f"ckpt.{self.config.MODEL.policy_name}.step{iter_num}.pth"  # to continue train
+                    )
+            self.save_checkpoint(
+                f"ckpt.{self.config.MODEL.policy_name}.epoch{epoch}.pth"  # to continue train
+            )
         writer.close()
         dataset.close_h5file()
 

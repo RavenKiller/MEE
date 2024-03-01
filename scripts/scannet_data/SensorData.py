@@ -113,7 +113,7 @@ class SensorData:
                     (image_size[1], image_size[0]),
                     interpolation=cv2.INTER_NEAREST,
                 )
-            cv2.imwrite(os.path.join(output_path, "%s_%05d.png"%(scan_id, f)), depth)
+            cv2.imwrite(os.path.join(output_path, "%s_%05d.png" % (scan_id, f)), depth)
 
     def export_color_images(self, output_path, image_size=None, frame_skip=1):
         if not os.path.exists(output_path):

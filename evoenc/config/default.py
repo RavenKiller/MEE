@@ -263,8 +263,9 @@ _C.PRETRAIN.STAGE1.warmup = 1000
 _C.PRETRAIN.STAGE1.batch_size = 32
 _C.PRETRAIN.STAGE1.loss_weights = [1.0, 1.0]
 _C.PRETRAIN.STAGE1.folder = (
-    "/root/autodl-tmp/data/stage1"  # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
+    "/root/autodl-tmp/stage1"  # must contains rgb.mat, depth.mat, inst.mat, sub.mat,
 )
+_C.PRETRAIN.STAGE1.save_steps = 100000
 
 _C.PRETRAIN.STAGE2 = CN()
 _C.PRETRAIN.STAGE2.load_from_ckpt = False
@@ -274,9 +275,7 @@ _C.PRETRAIN.STAGE2.lr = 1e-4
 _C.PRETRAIN.STAGE2.warmup = 1000
 _C.PRETRAIN.STAGE2.batch_size = 32
 _C.PRETRAIN.STAGE2.loss_weights = [0.5, 0.5, 1.0]
-_C.PRETRAIN.STAGE2.folder = (
-    "/root/autodl-tmp/data/stage2"  # must contains rgb_depth_large.mat, inst_sub_large.mat
-)
+_C.PRETRAIN.STAGE2.folder = "/root/autodl-tmp/data/stage2"  # must contains rgb_depth_large.mat, inst_sub_large.mat
 _C.PRETRAIN.STAGE2.positive_ratio = 0.4
 
 _C.PRETRAIN.STAGE3 = CN()
@@ -341,6 +340,7 @@ _C.MODEL.DEPTH_ENCODER.ddppo_checkpoint = "data/ddppo-models/gibson-4plus-resnet
 _C.MODEL.DEPTH_ENCODER.trainable = False
 _C.MODEL.DEPTH_ENCODER.final_relu = True
 
+### For RGB
 _C.MODEL.CLIP = CN()
 _C.MODEL.CLIP.model_name = "openai/clip-vit-base-patch32"
 _C.MODEL.CLIP.output_size = 512
@@ -351,36 +351,50 @@ _C.MODEL.CLIP.trainable = False
 _C.MODEL.CLIP.downsample_size = 3  # 3x3 = 9
 _C.MODEL.CLIP.rgb_level = -1  # final level feature
 
+### For depth
 _C.MODEL.TAC = CN()
 _C.MODEL.TAC.model_name = "RavenK/TAC-ViT-base"
 _C.MODEL.TAC.hidden_size = 768
+_C.MODEL.TAC.trainable = False
 
+### For instruction
 _C.MODEL.BERT = CN()
-_C.MODEL.BERT.model_name = "bert-base-uncased"
+_C.MODEL.BERT.model_name = "roberta-base"
 _C.MODEL.BERT.hidden_size = 768
 _C.MODEL.BERT.use_layer = 6
 _C.MODEL.BERT.tune_layer = []
 _C.MODEL.BERT.use_fc = True
 _C.MODEL.BERT.use_cls = False
+_C.MODEL.BERT.trainable = False
 
+### For sub instruction
+_C.MODEL.SBERT = CN()
+_C.MODEL.SBERT.model_name = "sentence-transformers/all-mpnet-base-v2"
+_C.MODEL.SBERT.hidden_size = 768
+_C.MODEL.SBERT.use_layer = 6
+_C.MODEL.SBERT.tune_layer = []
+_C.MODEL.SBERT.use_fc = True
+_C.MODEL.SBERT.use_cls = False
+_C.MODEL.SBERT.trainable = False
 
+### For multimodal encoder
 _C.MODEL.EVOENC = CN()
 _C.MODEL.EVOENC.window_size = 8
-_C.MODEL.EVOENC.instruction_len = 77
-_C.MODEL.EVOENC.sub_len = 12
-_C.MODEL.EVOENC.hidden_size = 512
-_C.MODEL.EVOENC.layers = 3
+_C.MODEL.EVOENC.instruction_len = 256
+_C.MODEL.EVOENC.sub_len = 16
+_C.MODEL.EVOENC.hidden_size = 768
+_C.MODEL.EVOENC.layers = 4
 _C.MODEL.EVOENC.heads = 8
 _C.MODEL.EVOENC.learnable_pe = True
 _C.MODEL.EVOENC.learnable_mask = False
 _C.MODEL.EVOENC.pe_type = "pt"  # position, token, split_position, pt, none
-_C.MODEL.EVOENC.rgb_len = 10
-_C.MODEL.EVOENC.depth_len = 16
+_C.MODEL.EVOENC.rgb_len = 50
+_C.MODEL.EVOENC.depth_len = 50
 _C.MODEL.EVOENC.dropout = 0.25
 _C.MODEL.EVOENC.inner_dropout = 0.0
-_C.MODEL.EVOENC.pre_ln = True
-_C.MODEL.EVOENC.pre_dropout = 0.25
-_C.MODEL.EVOENC.post_ln = True
+_C.MODEL.EVOENC.pre_ln = False
+_C.MODEL.EVOENC.pre_dropout = 0.0
+_C.MODEL.EVOENC.post_ln = False
 _C.MODEL.EVOENC.post_dropout = 0.0
 _C.MODEL.EVOENC.aggregate = "add"  # cat or add
 _C.MODEL.EVOENC.freeze_weights = -1  # -1: not freeze;

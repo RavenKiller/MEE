@@ -12,7 +12,7 @@ from evoenc.common.utils import single_frame_box_shape
 from transformers import DistilBertModel, DistilBertTokenizer, AutoModel, AutoTokenizer
 from PIL import Image
 import requests
-from transformers import AutoProcessor, CLIPVisionModel, AutoTokenizer, BertModel
+from transformers import CLIPVisionModel, BertModel
 
 
 class CLIPVisionEncoder(nn.Module):
@@ -31,7 +31,9 @@ class CLIPVisionEncoder(nn.Module):
             rgb_seq_features = observations["rgb_seq_features"]
         else:
             rgb_observations = observations["rgb"]
-            rgb_seq_features = self.model(pixel_values=rgb_observations).last_hidden_state
+            rgb_seq_features = self.model(
+                pixel_values=rgb_observations
+            ).last_hidden_state
         return rgb_seq_features
 
 
@@ -42,9 +44,7 @@ class TACDepthEncoder(nn.Module):
     ) -> None:
         super().__init__()
         self.config = config
-        self.model = CLIPVisionModel.from_pretrained(
-            config.MODEL.TAC.model_name
-        )
+        self.model = CLIPVisionModel.from_pretrained(config.MODEL.TAC.model_name)
 
     def encode_depth(
         self, observations: Observations, return_seq: bool = True
@@ -53,8 +53,11 @@ class TACDepthEncoder(nn.Module):
             depth_seq_features = observations["depth_seq_features"]
         else:
             depth_observations = observations["depth"]
-            depth_seq_features = self.model(pixel_values=depth_observations).last_hidden_state
+            depth_seq_features = self.model(
+                pixel_values=depth_observations
+            ).last_hidden_state
         return depth_seq_features
+
 
 class BERTEncoder(nn.Module):
     def __init__(
@@ -77,7 +80,9 @@ class BERTEncoder(nn.Module):
                 inst_observations = observations.get("text", None)
                 inst_mask = observations.get("text_mask", None)
 
-            inst_seq_features = self.model(input_ids=inst_observations, attention_mask=inst_mask).last_hidden_state
+            inst_seq_features = self.model(
+                input_ids=inst_observations, attention_mask=inst_mask
+            ).last_hidden_state
         return inst_seq_features
 
 

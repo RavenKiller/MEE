@@ -15,6 +15,7 @@ from habitat_baselines.common.baseline_registry import baseline_registry
 import habitat_extensions  # noqa: F401
 import evoenc  # noqa: F401
 from evoenc.config.default import get_config
+
 os.environ["http_proxy"] = "http://127.0.0.1:7890"
 os.environ["https_proxy"] = "http://127.0.0.1:7890"
 
@@ -64,8 +65,8 @@ def run_exp(config: str, mode: str, opts=None) -> None:
         os.makedirs(logdir, exist_ok=True)
     logger.add_filehandler(config.LOG_FILE % (datetime.now().strftime("%Y%m%d-%H%M%S")))
 
-    # seed =  config.TASK_CONFIG.SEED
-    seed = int(time.time())
+    seed = config.TASK_CONFIG.SEED
+    # seed = int(time.time())
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

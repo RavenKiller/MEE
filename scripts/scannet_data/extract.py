@@ -15,9 +15,9 @@ def extract(ids):
         filename = "/root/autodl-tmp/scannet/scans/train/{}/{}.sens".format(id, id)
         output_path = "/root/autodl-tmp/data/stage1/scannet-depth/train"
         if not os.path.exists(filename):
-            print("Skip "+filename)
+            print("Skip " + filename)
             continue
-        print("Extract "+filename)
+        print("Extract " + filename)
         try:
             os.makedirs(output_path, exist_ok=True)
         except OSError:
@@ -25,11 +25,11 @@ def extract(ids):
         failed = False
         try:
             sd = SensorData(filename)
-            sd.export_depth_images(os.path.join(output_path, "depth"),id)
-        except:
+            sd.export_depth_images(os.path.join(output_path, "depth"), id)
+        except Exception:
             failed = True
         if not failed:
-            print("Remove "+filename)
+            print("Remove " + filename)
             os.remove(filename)
 
 
