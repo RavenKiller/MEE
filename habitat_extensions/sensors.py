@@ -248,7 +248,7 @@ class SubInstructionSensor(Sensor):
         **kwargs,
     ):
         return {
-            "text": episode.instruction.instruction_text,
+            "text": episode.sub_instruction,
             "tokens": episode.sub_instruction_tokens,
             "trajectory_id": episode.trajectory_id,
         }

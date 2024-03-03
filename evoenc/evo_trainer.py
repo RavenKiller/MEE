@@ -65,8 +65,13 @@ def get_warmup_scheduler(optimizer, warmup_steps):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=factor)
 
 
-def stage1_collate_fn(batch):
-    # Process different length of videos
+def randint_exclude(a, b, excludes=[]):
+    res = random.randint(a, b)
+    return res if res not in excludes else randint_exclude(a, b, excludes)
+
+
+def stage_collate_fn(batch):
+    # Process different length of sub
     batch_ret = {}
     key_list = batch[0].keys()
     for k in key_list:
@@ -99,6 +104,7 @@ def stage1_collate_fn(batch):
             batch_ret[k] = torch.stack(datas)
         else:
             batch_ret[k] = datas
+    del batch
     return batch_ret
 
 
@@ -132,7 +138,15 @@ class Stage1Dataset(torch.utils.data.Dataset):
             }
             with open(folder / "stage1_files.json", "w") as f:
                 json.dump(files, f)
+            del files
+        # Solve the OOM problem
+        self.rgb = np.array([str(v) for v in self.rgb]).astype(np.string_)
+        self.depth = np.array([str(v) for v in self.depth]).astype(np.string_)
+        self.text = np.array([str(v) for v in self.text]).astype(np.string_)
+        self.sub = np.array([str(v) for v in self.sub]).astype(np.string_)
+
         self.data_frac = data_frac
+
         self.rgb_processor = CLIPImageProcessor.from_pretrained(
             config.MODEL.CLIP.model_name
         )
@@ -153,6 +167,8 @@ class Stage1Dataset(torch.utils.data.Dataset):
         )
 
     def __getitem__(self, idx):
+        if idx == -1:  # skip signal from sampler
+            return {}
         rgb_path = self.rgb[idx % len(self.rgb)]
         depth_path = self.depth[idx % len(self.depth)]
         text_path = self.text[idx % len(self.text)]
@@ -199,114 +215,292 @@ class Stage1Dataset(torch.utils.data.Dataset):
 
 
 class Stage2Dataset(torch.utils.data.Dataset):
-    def __init__(self, folder, positive_ratio=0.33, data_frac=1.0):
+    def __init__(
+        self,
+        config,
+        split="train",
+        positive_ratio=0.33,
+        data_frac=0.75,
+    ):
         super().__init__()
-        self.vision_handler = h5py.File(
-            os.path.join(folder, "rgb_depth_large.mat"), "r"
-        )
-        self.rgb = self.vision_handler["rgb"]
-        self.depth = self.vision_handler["depth"]
-        self.vision_num = self.rgb.shape[0]
+        self.config = config
+        folder = Path(config.PRETRAIN.STAGE2.folder)
+        if os.path.exists(folder / "stage2_files.json"):
+            with open(folder / "stage2_files.json", "r") as f:
+                files = json.load(f)
+            self.rgb = files["rgb"][0:1000]
+            self.depth = files["depth"][0:1000]
+            self.text = files["text"][0:1000]
+            self.sub = files["sub"][0:1000]
+        else:
+            self.rgb = list(folder.glob(f"rgb-*/{split}/*.jpg"))
+            self.depth = list(folder.glob(f"depth-*/{split}/*.png"))
+            self.text = list(folder.glob(f"text-*/{split}/*.txt"))
+            self.sub = list(folder.glob(f"sub-*/{split}/*.txt"))
+            files = {
+                "rgb": [str(v) for v in self.rgb],
+                "depth": [str(v) for v in self.depth],
+                "text": [str(v) for v in self.text],
+                "sub": [str(v) for v in self.sub],
+            }
+            with open(folder / "stage2_files.json", "w") as f:
+                json.dump(files, f)
+        # Solve the OOM problem
+        self.rgb = np.array([str(v) for v in self.rgb]).astype(np.string_)
+        self.depth = np.array([str(v) for v in self.depth]).astype(np.string_)
+        self.text = np.array([str(v) for v in self.text]).astype(np.string_)
+        self.sub = np.array([str(v) for v in self.sub]).astype(np.string_)
 
-        self.language_handler = h5py.File(
-            os.path.join(folder, "inst_sub_large.mat"), "r"
-        )
-        self.instructions = self.language_handler["instructions"]
-        self.sub_instructions = self.language_handler["sub_instructions"]
-        self.language_num = self.instructions.shape[0]
-
-        self.positive_ratio = positive_ratio
         self.data_frac = data_frac
+        self.positive_ratio = positive_ratio
+        self.rgb_processor = CLIPImageProcessor.from_pretrained(
+            config.MODEL.CLIP.model_name
+        )
+        self.depth_processor = CLIPImageProcessor.from_pretrained(
+            config.MODEL.TAC.model_name
+        )
+        self.text_processor = RobertaTokenizer.from_pretrained(
+            config.MODEL.BERT.model_name
+        )
+        self.sub_processor = AutoTokenizer.from_pretrained(
+            config.MODEL.SBERT.model_name
+        )
+        assert len(self.rgb) == len(self.depth)
+        assert len(self.text) == len(self.sub)
 
     def __len__(self):
-        return int(max(self.vision_num, self.language_num) * self.data_frac)
+        return int(
+            self.data_frac
+            * max(len(self.rgb), len(self.depth), len(self.text), len(self.sub))
+        )
 
     def __getitem__(self, idx):
         positive = random.random() <= self.positive_ratio
         negative_idx = idx
         if not positive:
-            negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-        rgb = self.rgb[idx % self.vision_num]
-        depth = self.depth[negative_idx % self.vision_num]
-        instruction = self.instructions[idx % self.language_num]
-        sub_instruction = self.sub_instructions[negative_idx % self.language_num]
+            # negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
+            negative_idx = randint_exclude(0, len(self) - 1, [idx])
+        rgb_path = self.rgb[idx % len(self.rgb)]
+        depth_path = self.depth[negative_idx % len(self.depth)]
+        text_path = self.text[idx % len(self.text)]
+        sub_path = self.sub[negative_idx % len(self.sub)]
+
+        rgb = Image.open(rgb_path)
+        rgb = self.rgb_processor(images=rgb, return_tensors="pt").pixel_values.squeeze(
+            0
+        )
+
+        depth = Image.open(depth_path)
+        depth = np.array(depth).astype("float32") / DEPTH_SCALE  # to meters
+        depth = np.clip(depth, MIN_DEPTH, MAX_DEPTH)  # clip to [MIN_DEPTH, MAX_DEPTH]
+        depth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH)  # normalize to [0,1]
+        depth = np.expand_dims(depth, axis=2).repeat(3, axis=2)  # extend to 3 channels
+        depth = self.depth_processor(
+            depth,
+            do_resize=False,
+            do_center_crop=False,
+            do_rescale=False,
+            do_convert_rgb=False,
+            return_tensors="pt",
+        ).pixel_values.squeeze(0)
+
+        with open(text_path, "r") as f:
+            text = f.read()
+        text = self.text_processor(
+            text, return_tensors="pt", padding=True, truncation=True, max_length=LEN
+        ).input_ids.squeeze(0)
+
+        with open(sub_path, "r") as f:
+            sub = f.read().split("\n")
+        sub = sub[: min(len(sub), SUB_NUM)]
+        sub = self.sub_processor(
+            sub, return_tensors="pt", padding=True, truncation=True, max_length=SUB_LEN
+        ).input_ids
 
         return {
-            "rgb": rgb.astype(np.float32),
-            "depth": depth.astype(np.float32),
-            "instruction": instruction.astype(np.int32),  # do not support uint32
-            "sub_instruction": sub_instruction.astype(np.int32),
-            "inner_gt": np.array(positive, dtype=np.int32),
+            "rgb": rgb,
+            "depth": depth,
+            "text": text,
+            "sub": sub,
+            "inner_gt": torch.tensor(positive, dtype=int),
         }
-
-    def close_h5file(self):
-        self.vision_handler.close()
-        self.language_handler.close()
 
 
 class Stage3Dataset(torch.utils.data.Dataset):
-    def __init__(self, folder, positive_ratio=0.33, inner_ratio=0.5, data_frac=1.0):
+    def __init__(
+        self,
+        config,
+        split="train",
+        positive_ratio=0.33,
+        inner_positive_ratio=0.5,
+        data_frac=0.75,
+    ):
         super().__init__()
-        # self.data_handler = h5py.File(os.path.join(folder, "data.mat"), "r")
-        self.rgb_handler = h5py.File(os.path.join(folder, "data_rgb.mat"), "r")
-        self.depth_handler = h5py.File(os.path.join(folder, "data_depth.mat"), "r")
-        self.inst_handler = h5py.File(os.path.join(folder, "data_inst.mat"), "r")
-        self.sub_handler = h5py.File(os.path.join(folder, "data_sub.mat"), "r")
-        self.rgb = self.rgb_handler["rgb"]
-        self.depth = self.depth_handler["depth"]
-        self.instructions = self.inst_handler["instructions"]
-        self.sub_instructions = self.sub_handler["sub_instructions"]
-
-        self.rgb_num = self.rgb.shape[0]
-        self.depth_num = self.depth.shape[0]
-        self.inst_num = self.instructions.shape[0]
-        self.sub_num = self.instructions.shape[0]
-        assert self.rgb_num == self.depth_num
-        assert self.rgb_num == self.inst_num
-        assert self.inst_num == self.sub_num
-
-        self.positive_ratio = positive_ratio  # the positive ratio
-        self.inner_ratio = inner_ratio  # the negative inner alignment ratio
+        self.config = config
+        folder = Path(config.PRETRAIN.STAGE3.folder)
+        if os.path.exists(folder / "stage3_files.json"):
+            with open(folder / "stage3_files.json", "r") as f:
+                files = json.load(f)
+            self.rgb = files["rgb"]
+            self.depth = files["depth"]
+            self.text = files["text"]
+            self.sub = files["sub"]
+        else:
+            self.rgb = sorted([str(v) for v in folder.glob(f"rgb-*/{split}/*.jpg")])
+            self.depth = sorted([str(v) for v in folder.glob(f"depth-*/{split}/*.png")])
+            self.text = sorted([str(v) for v in folder.glob(f"text-*/{split}/*.txt")])
+            self.sub = sorted([str(v) for v in folder.glob(f"sub-*/{split}/*.txt")])
+            files = {
+                "rgb": self.rgb,
+                "depth": self.depth,
+                "text": self.text,
+                "sub": self.sub,
+            }
+            with open(folder / "stage3_files.json", "w") as f:
+                json.dump(files, f)
+        # Solve the OOM problem
+        self.rgb = np.array(self.rgb).astype(np.string_)
+        self.depth = np.array(self.depth).astype(np.string_)
+        self.text = np.array(self.text).astype(np.string_)
+        self.sub = np.array(self.sub).astype(np.string_)
         self.data_frac = data_frac
+        self.positive_ratio = positive_ratio
+        self.inner_positive_ratio = inner_positive_ratio
+        self.rgb_processor = CLIPImageProcessor.from_pretrained(
+            config.MODEL.CLIP.model_name
+        )
+        self.depth_processor = CLIPImageProcessor.from_pretrained(
+            config.MODEL.TAC.model_name
+        )
+        self.text_processor = RobertaTokenizer.from_pretrained(
+            config.MODEL.BERT.model_name
+        )
+        self.sub_processor = AutoTokenizer.from_pretrained(
+            config.MODEL.SBERT.model_name
+        )
+        assert len(self.rgb) == len(self.depth)
+        assert len(self.rgb) == len(self.text)
+        assert len(self.rgb) == len(self.sub)
 
     def __len__(self):
-        return int(self.rgb_num * self.data_frac)
+        return int(
+            self.data_frac
+            * max(len(self.rgb), len(self.depth), len(self.text), len(self.sub))
+        )
 
     def __getitem__(self, idx):
         positive = random.random() <= self.positive_ratio
-        inner_negative = random.random() <= self.inner_ratio
+        inner_positive = random.random() <= self.inner_positive_ratio
         if positive:
-            rgb = self.rgb[idx % self.rgb_num]
-            depth = self.depth[idx % self.depth_num]
-            instruction = self.instructions[idx % self.inst_num]
-            sub_instruction = self.sub_instructions[idx % self.sub_num]
+            rgb_path = self.rgb[idx % len(self.rgb)]
+            depth_path = self.depth[idx % len(self.depth)]
+            text_path = self.text[idx % len(self.text)]
+            sub_path = self.sub[idx % len(self.sub)]
         else:
-            if inner_negative:
-                rgb = self.rgb[idx % self.rgb_num]
-                negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-                depth = self.depth[negative_idx % self.depth_num]
-                negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-                instruction = self.instructions[negative_idx % self.inst_num]
-                negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-                sub_instruction = self.sub_instructions[negative_idx % self.sub_num]
+            if inner_positive:
+                negative_idx = randint_exclude(0, len(self) - 1, [idx])
+                rgb_path = self.rgb[idx % len(self.rgb)]
+                depth_path = self.depth[idx % len(self.depth)]
+                text_path = self.text[negative_idx % len(self.text)]
+                sub_path = self.sub[negative_idx % len(self.sub)]
             else:
-                negative_idx = idx + random.randint(RAND_MIN, RAND_MAX)
-                rgb = self.rgb[idx % self.rgb_num]
-                depth = self.depth[idx % self.depth_num]
-                instruction = self.instructions[negative_idx % self.inst_num]
-                sub_instruction = self.sub_instructions[negative_idx % self.sub_num]
+                rgb_path = self.rgb[idx % len(self.rgb)]
+                negative_idx1 = randint_exclude(0, len(self) - 1, [idx])
+                depth_path = self.depth[negative_idx1 % len(self.depth)]
+
+                negative_idx2 = randint_exclude(0, len(self) - 1, [])
+                text_path = self.text[negative_idx2 % len(self.text)]
+                negative_idx3 = randint_exclude(0, len(self) - 1, [negative_idx2])
+                sub_path = self.sub[negative_idx3 % len(self.sub)]
+        print(positive, inner_positive)
+        if positive:
+            print(idx)
+        elif inner_positive:
+            print(idx, negative_idx)
+        else:
+            print(idx, negative_idx1, negative_idx2, negative_idx3)
+
+        rgb = Image.open(rgb_path)
+        rgb = self.rgb_processor(images=rgb, return_tensors="pt").pixel_values.squeeze(
+            0
+        )
+
+        depth = Image.open(depth_path)
+        depth = np.array(depth).astype("float32") / DEPTH_SCALE  # to meters
+        depth = np.clip(depth, MIN_DEPTH, MAX_DEPTH)  # clip to [MIN_DEPTH, MAX_DEPTH]
+        depth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH)  # normalize to [0,1]
+        depth = np.expand_dims(depth, axis=2).repeat(3, axis=2)  # extend to 3 channels
+        depth = self.depth_processor(
+            depth,
+            do_resize=False,
+            do_center_crop=False,
+            do_rescale=False,
+            do_convert_rgb=False,
+            return_tensors="pt",
+        ).pixel_values.squeeze(0)
+
+        with open(text_path, "r") as f:
+            text = f.read()
+        text = self.text_processor(
+            text, return_tensors="pt", padding=True, truncation=True, max_length=LEN
+        ).input_ids.squeeze(0)
+
+        with open(sub_path, "r") as f:
+            sub = f.read().split("\n")
+        sub = sub[: min(len(sub), SUB_NUM)]
+        sub = self.sub_processor(
+            sub, return_tensors="pt", padding=True, truncation=True, max_length=SUB_LEN
+        ).input_ids
 
         return {
-            "rgb": rgb.astype(np.float32),
-            "depth": depth.astype(np.float32),
-            "instruction": instruction.astype(np.int32),  # do not support uint32
-            "sub_instruction": sub_instruction.astype(np.int32),
-            "inner_gt": np.array((positive or not inner_negative), dtype=np.int32),
-            "outer_gt": np.array(positive, dtype=np.int32),
+            "rgb": rgb,
+            "depth": depth,
+            "text": text,
+            "sub": sub,
+            "inner_gt": torch.tensor(
+                np.logical_or(positive, inner_positive), dtype=int
+            ),
+            "outer_gt": torch.tensor(positive, dtype=int),
         }
 
-    def close_h5file(self):
-        self.data_handler.close()
+
+class SkipRandomSampler(torch.utils.data.RandomSampler):
+    def __init__(
+        self, data_source, replacement=False, num_samples=None, skip_samples=0
+    ):
+        self.data_source = data_source
+        self.replacement = replacement
+        self._num_samples = num_samples
+        self.skip_samples = skip_samples
+
+        if self._num_samples is not None and replacement is False:
+            raise ValueError(
+                "With replacement=False, num_samples should not be specified, "
+                "since a random permute will be performed."
+            )
+
+        if not isinstance(self.num_samples, int) or self.num_samples <= 0:
+            raise ValueError(
+                "num_samples should be a positive integeral "
+                "value, but got num_samples={}".format(self.num_samples)
+            )
+        if not isinstance(self.replacement, bool):
+            raise ValueError(
+                "replacement should be a boolean value, but got "
+                "replacement={}".format(self.replacement)
+            )
+
+    def __iter__(self):
+        n = len(self.data_source)
+        if self.replacement:
+            return iter(
+                torch.randint(
+                    high=n, size=(self.num_samples,), dtype=torch.int64
+                ).tolist()
+            )
+        res = torch.randperm(n)
+        res[: self.skip_samples] = -1
+        return iter(res.tolist())
 
 
 @baseline_registry.register_trainer(name="evopretrainer")
@@ -364,12 +558,13 @@ class PreTrainer(BaseVLNCETrainer):
             self.policy.load_state_dict_woenc(
                 ckpt_dict["state_dict"], excludes=config.PRETRAIN.excludes
             )
-            if config.PRETRAIN.is_requeue:
-                self.optimizer.load_state_dict(ckpt_dict["optim_state"])
-                self.scheduler.load_state_dict(ckpt_dict["scheduler_state"])
-                self.start_epoch = ckpt_dict["epoch"] + 1
-                self.step_id = ckpt_dict["step_id"]
             logger.info(f"Loaded weights from checkpoint: {ckpt_path}")
+            if config.PRETRAIN.is_requeue:
+                self.optimizer.load_state_dict(ckpt_dict["optimizer_state"])
+                self.scheduler.load_state_dict(ckpt_dict["scheduler_state"])
+                self.step_id = ckpt_dict["step_id"]
+                logger.info(f"Resume training from checkpoint: {ckpt_path}")
+                logger.info(f"Start training from step: {self.step_id+1}")
 
         params = sum(param.numel() for param in self.policy.parameters())
         params_t = sum(p.numel() for p in self.policy.parameters() if p.requires_grad)
@@ -377,7 +572,7 @@ class PreTrainer(BaseVLNCETrainer):
         logger.info("Finished setting up policy.")
         self.max_grad_norm = config.PRETRAIN.max_grad_norm
 
-    def save_checkpoint(self, file_name: str) -> None:
+    def save_checkpoint(self, file_name: str, step_id: int = 0) -> None:
         """Save checkpoint with specified name.
 
         Args:
@@ -387,16 +582,15 @@ class PreTrainer(BaseVLNCETrainer):
             "state_dict": self.policy.state_dict_woenc(
                 excludes=self.config.PRETRAIN.excludes
             ),
+            "optimizer_state": self.optimizer.state_dict(),
+            "scheduler_state": self.scheduler.state_dict(),
+            "step_id": step_id,
             "config": self.config,
         }
         torch.save(checkpoint, os.path.join(self.config.CHECKPOINT_FOLDER, file_name))
 
     def train(self):
         observation_space, action_space = self._get_spaces(self.config)
-        # with open("habitat_extensions/observation_space.pkl","wb") as f:
-        #     pickle.dump(observation_space, f)
-        # with open("habitat_extensions/action_space.pkl","wb") as f:
-        #     pickle.dump(action_space, f)
         self._initialize_policy(
             self.config,
             observation_space=observation_space,
@@ -417,10 +611,13 @@ class PreTrainer(BaseVLNCETrainer):
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=self.stage_config.batch_size,
-            shuffle=True,
-            num_workers=1,
-            collate_fn=stage1_collate_fn,
-            # pin_memory=True
+            shuffle=False,
+            num_workers=8,
+            collate_fn=stage_collate_fn,
+            pin_memory=False,
+            sampler=SkipRandomSampler(
+                dataset, skip_samples=(self.step_id + 1) * self.stage_config.batch_size
+            ),
         )
 
         self.policy, self.optimizer, dataloader, self.scheduler = accelerator.prepare(
@@ -443,6 +640,9 @@ class PreTrainer(BaseVLNCETrainer):
                 dynamic_ncols=True,
             )
             for batch in batch_bar:
+                if iter_num <= self.step_id:  # skip steps in the ckpt
+                    iter_num += 1
+                    continue
                 self.optimizer.zero_grad()
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
                 losses = self.policy.net.stage1_forward(batch)
@@ -470,28 +670,33 @@ class PreTrainer(BaseVLNCETrainer):
                 for k in losses:
                     writer.add_scalar("loss/%s" % (k), losses[k], iter_num)
                 writer.add_scalar("loss/total", total_loss, iter_num)
-                iter_num += 1
-                if iter_num != 0 and iter_num % self.stage_config.save_steps == 0:
+                if iter_num % self.stage_config.save_steps == 0:
                     self.save_checkpoint(
-                        f"ckpt.{self.config.MODEL.policy_name}.step{iter_num}.pth"  # to continue train
+                        f"ckpt.{self.config.MODEL.policy_name}.step{iter_num}.pth",  # to continue train
+                        step_id=iter_num,
                     )
+                iter_num += 1
             self.save_checkpoint(
-                f"ckpt.{self.config.MODEL.policy_name}.epoch{epoch}.pth"  # to continue train
+                f"ckpt.{self.config.MODEL.policy_name}.epoch{epoch}.pth",  # to continue train
+                step_id=iter_num,
             )
         writer.close()
-        dataset.close_h5file()
 
     def _train_stage2(self):
         dataset = Stage2Dataset(
-            folder=self.stage_config.folder,
+            config=self.config,
             positive_ratio=self.stage_config.positive_ratio,
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
             batch_size=self.stage_config.batch_size,
             shuffle=True,
-            num_workers=6,
+            num_workers=8,
+            collate_fn=stage_collate_fn,
             # pin_memory=True
+        )
+        self.policy, self.optimizer, dataloader, self.scheduler = accelerator.prepare(
+            self.policy, self.optimizer, dataloader, self.scheduler
         )
         writer = SummaryWriter(
             os.path.join(
@@ -505,11 +710,14 @@ class PreTrainer(BaseVLNCETrainer):
         for epoch in tqdm.trange(self.stage_config.epochs, dynamic_ncols=True):
             batch_bar = tqdm.tqdm(
                 dataloader,
-                total=len(dataloader.dataset) // dataloader.batch_size,
+                total=len(dataloader.dataset) // self.stage_config.batch_size,
                 leave=False,
                 dynamic_ncols=True,
             )
             for batch in batch_bar:
+                if iter_num <= self.step_id:
+                    iter_num += 1
+                    continue
                 self.optimizer.zero_grad()
                 batch = {k: v.to(device=self.device) for k, v in batch.items()}
                 losses, _ = self.policy.net.stage2_forward(batch)
@@ -517,12 +725,14 @@ class PreTrainer(BaseVLNCETrainer):
                 for i, k in enumerate(losses):
                     w = self.stage_config.loss_weights[i]
                     total_loss += w * (losses[k])
-                total_loss.backward()
+                # total_loss.backward()
+                accelerator.backward(total_loss)
                 if self.max_grad_norm:
                     torch.nn.utils.clip_grad_norm_(
                         self.policy.parameters(), self.max_grad_norm
                     )
                 self.optimizer.step()
+                self.scheduler.step()
 
                 batch_bar.set_description(f"E {epoch}.")
                 batch_bar.set_postfix(
@@ -536,18 +746,22 @@ class PreTrainer(BaseVLNCETrainer):
                 for k in losses:
                     writer.add_scalar("loss/%s" % (k), losses[k], iter_num)
                 writer.add_scalar("loss/total", total_loss, iter_num)
+                if iter_num % self.stage_config.save_steps == 0:
+                    self.save_checkpoint(
+                        f"ckpt.{self.config.MODEL.policy_name}.step{iter_num}.pth",  # to continue train
+                        step_id=iter_num,
+                    )
                 iter_num += 1
             self.save_checkpoint(
-                f"ckpt.{self.config.MODEL.policy_name}.{epoch}.pth"  # to continue train
+                f"ckpt.{self.config.MODEL.policy_name}.epoch{epoch}.pth"  # to continue train
             )
         writer.close()
-        dataset.close_h5file()
 
     def _train_stage3(self):
         dataset = Stage3Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
-            inner_ratio=self.stage_config.inner_ratio,
+            inner_positive_ratio=self.stage_config.inner_positive_ratio,
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -742,7 +956,7 @@ class PreTrainer(BaseVLNCETrainer):
         dataset = Stage3Dataset(
             folder=self.stage_config.folder,
             positive_ratio=self.stage_config.positive_ratio,
-            inner_ratio=self.stage_config.inner_ratio,
+            inner_positive_ratio=self.stage_config.inner_positive_ratio,
             data_frac=1.0,
         )
         dataloader = torch.utils.data.DataLoader(

@@ -63,8 +63,8 @@ class BaseVLNCETrainer(BaseILTrainer):
         )
         # self.device = torch.device("cpu")
         self.obs_transforms = []
-        self.start_epoch = 0
-        self.step_id = 0
+        self.start_epoch = -1
+        self.step_id = -1
         self.scaler = torch.cuda.amp.grad_scaler.GradScaler()
 
         self.sub_score = None

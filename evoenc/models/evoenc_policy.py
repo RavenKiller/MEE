@@ -84,7 +84,7 @@ class ReconstructionLayer(nn.Module):
 
     def forward(self, x):
         x = self.dense(x)
-        x = self.activation(x)
+        # x = self.activation(x)
         return x
 
 
@@ -339,7 +339,8 @@ class EENet(Net):
             # feature type prediction
             # self.type_prediction = nn.Linear(self._hidden_size, 4)
             # feature alignment
-            self.inner_alignment = nn.Linear(self._hidden_size * 2, 1)
+            self.inner_alignment_v = nn.Linear(self._hidden_size * 2, 1)
+            self.inner_alignment_l = nn.Linear(self._hidden_size * 2, 1)
             self.outer_alignment = nn.Linear(self._hidden_size * 4, 1)
             # noise detection
             # self.noise_detection = nn.Linear(self._hidden_size, 1)
@@ -720,6 +721,15 @@ class EENet(Net):
             return masked_feature, mask
 
     def stage1_forward(self, observations, positive=True):
+        #################################################
+        # Losses initialization
+        #################################################
+        loss_rec = 0
+        loss_mean = 0
+
+        #################################################
+        # Embeddings
+        #################################################
         # Batch info
         B = observations["rgb"].shape[0]
         device = observations["rgb"].device
@@ -753,11 +763,6 @@ class EENet(Net):
         rgb_embedding_seq = self.rgb_fc(rgb_embedding_seq)
         depth_embedding_seq = self.depth_fc(depth_embedding_seq)
 
-        #################################################
-        # Losses initialization
-        #################################################
-        loss_rec = 0
-        loss_mean = 0
         # Token
         token_embeddings = self.token_embedding.expand(
             (rgb_embedding_seq.shape[0], -1, -1)
@@ -918,54 +923,37 @@ class EENet(Net):
         loss_rec = 0
         loss_mean = 0
         loss_align = 0
-        align_gt = observations["inner_gt"]
-        positive_idx = align_gt.bool()
+        inner_gt = observations["inner_gt"]
+        positive_idx = inner_gt.bool()
 
         #################################################
         # Embeddings
         #################################################
         # Batch info
-        # N = observations["rgb"].shape[0]
+        B = observations["rgb"].shape[0]
+        device = observations["rgb"].device
 
         # Embedding
-        instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
-        inst_mask = (instruction_embedding == 0).all(dim=2)
-        sub_instruction_embedding = self.clip_encoder.encode_sub_instruction(
-            observations
-        )  # (N,L,D)
-        sub_mask = (sub_instruction_embedding == 0).all(dim=2)
-        depth_embedding, depth_embedding_seq = self.depth_encoder.encode_depth(
-            observations
-        )  # (N,D), (N,D,L)
-        rgb_embedding, rgb_embedding_seq = self.clip_encoder.encode_image(
-            observations,
-        )  # (N,D), (N,D,L)
-        rgb_embedding_seq = torch.cat(
-            [rgb_embedding.unsqueeze(2), rgb_embedding_seq], dim=2
-        ).permute(
-            0, 2, 1
-        )  # (N, D, L+1)
-        depth_embedding_seq = depth_embedding_seq.permute(0, 2, 1)
+        rgb_seq_features = self.encode_rgb(observations)
+        depth_seq_features = self.encode_depth(observations)
+        inst_seq_features, inst_mask = self.encode_inst(observations)
+        sub_seq_features, sub_mask = self.encode_sub(observations)
 
-        # Cached features, only positive samples used for reconstruction losses
-        self.rgb_seq_features = rgb_embedding_seq[positive_idx].detach().clone()
-        self.depth_seq_features = (
-            depth_embedding_seq[positive_idx].detach().clone()
-        )  # self.depth_encoder.get_depth_seq_features()
-        self.inst_features = instruction_embedding[positive_idx].detach().clone()
-        self.sub_features = sub_instruction_embedding[positive_idx].detach().clone()
+        # Cached features
+        self.rgb_seq_features = rgb_seq_features[positive_idx].detach().clone()
+        self.depth_seq_features = depth_seq_features[positive_idx].detach().clone()
+        self.inst_features = inst_seq_features[positive_idx].detach().clone()
+        self.sub_features = sub_seq_features[positive_idx].detach().clone()
 
         # Masked features
         # feature masks only catch the masked positions, without padding positions
+        rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_seq_features)
+        depth_embedding_seq, feature_mask_depth = self._feature_mask(depth_seq_features)
         instruction_embedding, feature_mask_inst = self._feature_mask(
-            instruction_embedding, pad_mask=inst_mask
+            inst_seq_features, pad_mask=inst_mask
         )
         sub_instruction_embedding, feature_mask_sub = self._feature_mask(
-            sub_instruction_embedding, pad_mask=sub_mask
-        )
-        rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_embedding_seq)
-        depth_embedding_seq, feature_mask_depth = self._feature_mask(
-            depth_embedding_seq
+            sub_seq_features, pad_mask=sub_mask
         )
 
         # FC
@@ -974,11 +962,14 @@ class EENet(Net):
         rgb_embedding_seq = self.rgb_fc(rgb_embedding_seq)
         depth_embedding_seq = self.depth_fc(depth_embedding_seq)
 
+        # Token
+        token_embeddings = self.token_embedding.expand(
+            (rgb_embedding_seq.shape[0], -1, -1)
+        )
+
         #################################################
         # Vision part
         #################################################
-        # Token
-        token_embeddings = self.token_embedding.expand((rgb_embedding.shape[0], -1, -1))
         # Concat
         seq_vision_embedding = torch.cat(
             [
@@ -989,35 +980,41 @@ class EENet(Net):
             ],
             dim=1,
         )
-        # Extra embedding
-        if self.pe_type == "pt":
-            a = self.positional_embedding[0 : self.rgb_len + 1, :]
-            b = self.positional_embedding[0 : self.depth_len + 1, :]
-            split_position_embedding = torch.cat([a, b], dim=0).expand(
-                (seq_vision_embedding.shape[0], -1, -1)
-            )
-            a = self.type_embedding[0:1, :].repeat((self.rgb_len + 1, 1))
-            b = self.type_embedding[1:2, :].repeat((self.depth_len + 1, 1))
-            token_ids_embedding = torch.cat([a, b], dim=0).expand(
-                (seq_vision_embedding.shape[0], -1, -1)
-            )
-            seq_vision_embedding = (
-                seq_vision_embedding + split_position_embedding + token_ids_embedding
-            )
+        # Modality type ids
+        B, L_rgb, D_rgb = rgb_embedding_seq.shape
+        B, L_depth, D_depth = depth_embedding_seq.shape
+        vision_type_ids = torch.cat(
+            [
+                torch.ones((B, L_rgb + 1), dtype=int, device=device) * RGB,
+                torch.ones((B, L_depth + 1), dtype=int, device=device) * DEP,
+            ],
+            dim=1,
+        )
+
         # Transformer blocks
-        seq_vision_out = self._t_forward(seq_vision_embedding)
+        seq_vision_out = self._t_forward(
+            seq_vision_embedding, token_type_ids=vision_type_ids
+        )
+
         # split output sequence
         rgb_cls = seq_vision_out[:, 0, :]
-        depth_cls = seq_vision_out[:, self.rgb_len + 1, :]
-        rgb_out = seq_vision_out[positive_idx, 1 : self.rgb_len + 1, :]
-        depth_out = seq_vision_out[positive_idx, self.rgb_len + 2 :, :]
+        rgb_out = seq_vision_out[positive_idx, 1 : L_rgb + 1, :]
+        depth_cls = seq_vision_out[:, L_rgb + 1, :]
+        depth_out = seq_vision_out[positive_idx, L_rgb + 2 :, :]
+
         # mask feature reconstruction, only positive samples are involved
         feature_mask_rgb = feature_mask_rgb[positive_idx]
         feature_mask_depth = feature_mask_depth[positive_idx]
-        rgb_rec = self.rgb_reconstruction(rgb_out[feature_mask_rgb])
-        depth_rec = self.depth_reconstruction(depth_out[feature_mask_depth])
-        loss_rec += F.mse_loss(rgb_rec, self.rgb_seq_features[feature_mask_rgb])
-        loss_rec += F.mse_loss(depth_rec, self.depth_seq_features[feature_mask_depth])
+        rgb_rec = self.rgb_reconstruction(rgb_out[feature_mask_rgb.logical_not()])
+        depth_rec = self.depth_reconstruction(
+            depth_out[feature_mask_depth.logical_not()]
+        )
+        loss_rec += F.mse_loss(
+            rgb_rec, self.rgb_seq_features[feature_mask_rgb.logical_not()]
+        )
+        loss_rec += F.mse_loss(
+            depth_rec, self.depth_seq_features[feature_mask_depth.logical_not()]
+        )
         # mean feature reconstruction, only positive samples are involved
         rgb_mean_gt = self.rgb_seq_features.mean(dim=1)
         rgb_mean_rec = self.mean_rgb_reconstruction(rgb_cls[positive_idx])
@@ -1027,9 +1024,9 @@ class EENet(Net):
         loss_mean += F.mse_loss(depth_mean_rec, depth_mean_gt)
         # inner alignment, all samples are involved
         rgb_depth_cls = torch.cat([rgb_cls, depth_cls], dim=1)
-        align_pre_v = self.inner_alignment(rgb_depth_cls)
+        inner_pre_v = self.inner_alignment_v(rgb_depth_cls)
         loss_align += F.binary_cross_entropy(
-            torch.sigmoid(align_pre_v.squeeze()), align_gt.float()
+            torch.sigmoid(inner_pre_v.squeeze(1)), inner_gt.float()
         )
 
         #################################################
@@ -1044,72 +1041,61 @@ class EENet(Net):
             ],
             dim=1,
         )
-        if self.pe_type == "pt":
-            c = self.positional_embedding[0 : self.instruction_len + 1, :]
-            d = self.positional_embedding[0 : self.sub_len + 1, :]
-            split_position_embedding = torch.cat([c, d], dim=0).expand(
-                (seq_language_embedding.shape[0], -1, -1)
-            )
-            c = self.type_embedding[2:3, :].repeat((self.instruction_len + 1, 1))
-            d = self.type_embedding[3:4, :].repeat((self.sub_len + 1, 1))
-            token_ids_embedding = torch.cat([c, d], dim=0).expand(
-                (seq_language_embedding.shape[0], -1, -1)
-            )
-            seq_language_embedding = (
-                seq_language_embedding + split_position_embedding + token_ids_embedding
-            )
-        start_inst = 1
-        start_sub = 2 + self.instruction_len
-        T_N = seq_language_embedding.shape[0]
-        # (T*N, heads, L, L)
-        language_len = 2 + self.instruction_len + self.sub_len
-        attn_mask = torch.zeros(
-            (T_N, self._transformer_heads, language_len, language_len), dtype=bool
-        ).to(rgb_embedding.device)
-        # Fill, (T*N, Linst) -> (T*N, heads, Linst, Linst)
-        attn_mask[:, :, :, start_inst : start_sub - 1] = (
-            inst_mask.unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, self._transformer_heads, language_len, -1)
+
+        B, L_inst, D_inst = instruction_embedding.shape
+        B, L_sub, D_sub = sub_instruction_embedding.shape
+        language_type_ids = torch.cat(
+            [
+                torch.ones((B, L_inst + 1), dtype=int, device=device) * INS,
+                torch.ones((B, L_sub + 1), dtype=int, device=device) * SUB,
+            ],
+            dim=1,
         )
-        attn_mask[:, :, :, start_sub:] = (
-            sub_mask.unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, self._transformer_heads, language_len, -1)
-        )
-        attn_mask = attn_mask.reshape((-1, language_len, language_len))
+
+        # Attention mask
+        attn_mask = torch.ones((B, L_inst + L_sub + 2), dtype=int, device=device)
+        attn_mask[:, 1 : L_inst + 1] = inst_mask
+        attn_mask[:, L_inst + 2 :] = sub_mask
+
         # Transformer blocks
-        seq_language_out = self._t_forward(seq_language_embedding, attn_mask)
+        seq_language_out = self._t_forward(
+            seq_language_embedding,
+            attention_mask=attn_mask,
+            token_type_ids=language_type_ids,
+        )
         # split output sequence
         inst_cls = seq_language_out[:, 0, :]
-        sub_cls = seq_language_out[:, self.instruction_len + 1, :]
-        inst_out = seq_language_out[positive_idx, 1 : self.instruction_len + 1, :]
-        sub_out = seq_language_out[positive_idx, self.instruction_len + 2 :, :]
+        inst_out = seq_language_out[positive_idx, 1 : L_inst + 1, :]
+        sub_cls = seq_language_out[:, L_inst + 1, :]
+        sub_out = seq_language_out[positive_idx, L_inst + 2 :, :]
         # mask feature reconstruction, only positive samples are involved
         feature_mask_inst = feature_mask_inst[positive_idx]
         feature_mask_sub = feature_mask_sub[positive_idx]
-        inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst])
-        sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub])
+        inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst.logical_not()])
+        sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub.logical_not()])
         loss_rec += (
-            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst]) / COEF_REC_INST
+            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst.logical_not()])
+            / COEF_REC_INST
         )
-        loss_rec += F.mse_loss(sub_rec, self.sub_features[feature_mask_sub])
+        loss_rec += F.mse_loss(
+            sub_rec, self.sub_features[feature_mask_sub.logical_not()]
+        )
         # mean feature reconstruction
         inst_mean_gt = self.inst_features.sum(dim=1) / (
-            (~(inst_mask[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            inst_mask[positive_idx].sum(dim=1, keepdim=True) + EPS
         )
         inst_mean_rec = self.mean_inst_reconstruction(inst_cls[positive_idx])
         loss_mean += F.mse_loss(inst_mean_rec, inst_mean_gt)
         sub_mean_gt = self.sub_features.sum(dim=1) / (
-            (~(sub_mask[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            sub_mask[positive_idx].sum(dim=1, keepdim=True) + EPS
         )
         sub_mean_rec = self.mean_sub_reconstruction(sub_cls[positive_idx])
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)
         # inner alignment
         inst_sub_cls = torch.cat([inst_cls, sub_cls], dim=1)
-        align_pre_l = self.inner_alignment(inst_sub_cls)
+        inner_pre_l = self.inner_alignment_l(inst_sub_cls)
         loss_align += F.binary_cross_entropy(
-            torch.sigmoid(align_pre_l.squeeze()), align_gt.float()
+            torch.sigmoid(inner_pre_l.squeeze(1)), inner_gt.float()
         )
 
         return {
@@ -1117,10 +1103,10 @@ class EENet(Net):
             "loss_mean": loss_mean if positive_idx.sum() > 0 else 0,
             "loss_align": loss_align,
         }, {
-            "align_gt_v": align_gt,
-            "align_pre_v": align_pre_v,
-            "align_gt_l": align_gt,
-            "align_pre_l": align_pre_l,
+            "inner_gt_v": inner_gt,
+            "inner_pre_v": inner_pre_v,
+            "inner_gt_l": inner_gt,
+            "inner_pre_l": inner_pre_l,
         }
 
     def stage3_forward(self, observations):
@@ -1139,47 +1125,30 @@ class EENet(Net):
         # Embeddings
         #################################################
         # Batch info
-        # N = observations["rgb"].shape[0]
+        B = observations["rgb"].shape[0]
+        device = observations["rgb"].device
 
         # Embedding
-        instruction_embedding = self.clip_encoder.encode_raw(observations)  # (N,L,D)
-        inst_mask = (instruction_embedding == 0).all(dim=2)
-        sub_instruction_embedding = self.clip_encoder.encode_sub_instruction(
-            observations
-        )  # (N,L,D)
-        sub_mask = (sub_instruction_embedding == 0).all(dim=2)
-        depth_embedding, depth_embedding_seq = self.depth_encoder.encode_depth(
-            observations
-        )  # (N,D), (N,D,L)
-        rgb_embedding, rgb_embedding_seq = self.clip_encoder.encode_image(
-            observations,
-        )  # (N,D), (N,D,L)
-        rgb_embedding_seq = torch.cat(
-            [rgb_embedding.unsqueeze(2), rgb_embedding_seq], dim=2
-        ).permute(
-            0, 2, 1
-        )  # (N, D, L+1)
-        depth_embedding_seq = depth_embedding_seq.permute(0, 2, 1)
+        rgb_seq_features = self.encode_rgb(observations)
+        depth_seq_features = self.encode_depth(observations)
+        inst_seq_features, inst_mask = self.encode_inst(observations)
+        sub_seq_features, sub_mask = self.encode_sub(observations)
 
-        # Cached features, only positive samples used for reconstruction losses
-        self.rgb_seq_features = rgb_embedding_seq[positive_idx].detach().clone()
-        self.depth_seq_features = (
-            depth_embedding_seq[positive_idx].detach().clone()
-        )  # self.depth_encoder.get_depth_seq_features()
-        self.inst_features = instruction_embedding[positive_idx].detach().clone()
-        self.sub_features = sub_instruction_embedding[positive_idx].detach().clone()
+        # Cached features
+        self.rgb_seq_features = rgb_seq_features[positive_idx].detach().clone()
+        self.depth_seq_features = depth_seq_features[positive_idx].detach().clone()
+        self.inst_features = inst_seq_features[positive_idx].detach().clone()
+        self.sub_features = sub_seq_features[positive_idx].detach().clone()
 
         # Masked features
         # feature masks only catch the masked positions, without padding positions
+        rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_seq_features)
+        depth_embedding_seq, feature_mask_depth = self._feature_mask(depth_seq_features)
         instruction_embedding, feature_mask_inst = self._feature_mask(
-            instruction_embedding, pad_mask=inst_mask
+            inst_seq_features, pad_mask=inst_mask
         )
         sub_instruction_embedding, feature_mask_sub = self._feature_mask(
-            sub_instruction_embedding, pad_mask=sub_mask
-        )
-        rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_embedding_seq)
-        depth_embedding_seq, feature_mask_depth = self._feature_mask(
-            depth_embedding_seq
+            sub_seq_features, pad_mask=sub_mask
         )
 
         # FC
@@ -1188,11 +1157,15 @@ class EENet(Net):
         rgb_embedding_seq = self.rgb_fc(rgb_embedding_seq)
         depth_embedding_seq = self.depth_fc(depth_embedding_seq)
 
-        ## Construct input sequence
         # Token
         token_embeddings = self.token_embedding.expand(
-            (rgb_embedding.shape[0], -1, -1)
-        ).clone()
+            (rgb_embedding_seq.shape[0], -1, -1)
+        )
+
+        #################################################
+        # All modalities
+        #################################################
+        ## Construct input sequence
         # Concat
         seq_embedding = torch.cat(
             [
@@ -1207,103 +1180,73 @@ class EENet(Net):
             ],
             dim=1,
         )
-        # Extra embedding
-        if self.pe_type == "position":
-            seq_embedding = seq_embedding + self.positional_embedding.expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-        elif self.pe_type == "token":
-            a = self.type_embedding[0:1, :].repeat((self.rgb_len + 1, 1))
-            b = self.type_embedding[1:2, :].repeat((self.depth_len + 1, 1))
-            c = self.type_embedding[2:3, :].repeat((self.instruction_len + 1, 1))
-            d = self.type_embedding[3:4, :].repeat((self.sub_len + 1, 1))
-            token_ids_embedding = torch.cat([a, b, c, d], dim=0).expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-            seq_embedding = seq_embedding + token_ids_embedding
-        elif self.pe_type == "split_position":
-            a = self.positional_embedding[0 : self.rgb_len + 1, :]
-            b = self.positional_embedding[0 : self.depth_len + 1, :]
-            c = self.positional_embedding[0 : self.instruction_len + 1, :]
-            d = self.positional_embedding[0 : self.sub_len + 1, :]
-            split_position_embedding = torch.cat([a, b, c, d], dim=0).expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-            seq_embedding = seq_embedding + split_position_embedding
-        elif self.pe_type == "pt":
-            a = self.positional_embedding[0 : self.rgb_len + 1, :]
-            b = self.positional_embedding[0 : self.depth_len + 1, :]
-            c = self.positional_embedding[0 : self.instruction_len + 1, :]
-            d = self.positional_embedding[0 : self.sub_len + 1, :]
-            split_position_embedding = torch.cat([a, b, c, d], dim=0).expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-            a = self.type_embedding[0:1, :].repeat((self.rgb_len + 1, 1))
-            b = self.type_embedding[1:2, :].repeat((self.depth_len + 1, 1))
-            c = self.type_embedding[2:3, :].repeat((self.instruction_len + 1, 1))
-            d = self.type_embedding[3:4, :].repeat((self.sub_len + 1, 1))
-            token_ids_embedding = torch.cat([a, b, c, d], dim=0).expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-            seq_embedding = (
-                seq_embedding + split_position_embedding + token_ids_embedding
-            )
 
-        ## Attention mask, masking positions (empty words, empty subs)
-        start_inst = 3 + self.depth_len + self.rgb_len
-        start_sub = 4 + self.depth_len + self.rgb_len + self.instruction_len
-        T_N = seq_embedding.shape[0]
-        # (T*N, heads, L, L)
-        attn_mask = torch.zeros(
-            (T_N, self._transformer_heads, self.total_len, self.total_len), dtype=bool
-        ).to(rgb_embedding.device)
-        # Fill
-        attn_mask[:, :, :, start_inst : start_sub - 1] = (
-            inst_mask.unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, self._transformer_heads, self.total_len, -1)
+        # Modality type ids
+        B, L_rgb, D_rgb = rgb_embedding_seq.shape
+        B, L_depth, D_depth = depth_embedding_seq.shape
+        B, L_inst, D_inst = instruction_embedding.shape
+        B, L_sub, D_sub = sub_instruction_embedding.shape
+
+        all_type_ids = torch.cat(
+            [
+                torch.ones((B, L_rgb + 1), dtype=int, device=device) * RGB,
+                torch.ones((B, L_depth + 1), dtype=int, device=device) * DEP,
+                torch.ones((B, L_inst + 1), dtype=int, device=device) * INS,
+                torch.ones((B, L_sub + 1), dtype=int, device=device) * SUB,
+            ],
+            dim=1,
         )
-        attn_mask[:, :, :, start_sub:] = (
-            sub_mask.unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, self._transformer_heads, self.total_len, -1)
+        # Attention mask
+        attn_mask = torch.ones(
+            (B, L_rgb + L_depth + L_inst + L_sub + 4), dtype=int, device=device
         )
-        attn_mask = attn_mask.reshape((-1, self.total_len, self.total_len))
-        self.attn_mask = attn_mask
+        attn_mask[:, L_rgb + L_depth + 3 : L_rgb + L_depth + L_inst + 3] = inst_mask
+        attn_mask[:, L_rgb + L_depth + L_inst + 4 :] = sub_mask
 
         # Transformer blocks
-        seq_out = self._t_forward(seq_embedding, attn_mask)
+        seq_out = self._t_forward(
+            seq_embedding, attention_mask=attn_mask, token_type_ids=all_type_ids
+        )
 
         # Total feature, select
         rgb_cls = seq_out[:, 0, :]
-        depth_cls = seq_out[:, self.rgb_len + 1, :]
-        inst_cls = seq_out[:, start_inst - 1, :]
-        sub_cls = seq_out[:, start_sub - 1, :]
+        depth_cls = seq_out[:, L_rgb + 1, :]
+        inst_cls = seq_out[:, L_rgb + L_depth + 2, :]
+        sub_cls = seq_out[:, L_rgb + L_depth + L_inst + 3, :]
         rgb_out = seq_out[
             positive_idx,
-            1 : self.rgb_len + 1,
+            1 : L_rgb + 1,
         ]
-        depth_out = seq_out[
-            positive_idx, self.rgb_len + 2 : self.rgb_len + self.depth_len + 2, :
+        depth_out = seq_out[positive_idx, L_rgb + 2 : L_rgb + L_depth + 2, :]
+        inst_out = seq_out[
+            positive_idx, L_rgb + L_depth + 3 : L_rgb + L_depth + L_inst + 3, :
         ]
-        inst_out = seq_out[positive_idx, start_inst : start_sub - 1, :]
-        sub_out = seq_out[positive_idx, start_sub:, :]
+        sub_out = seq_out[positive_idx, L_rgb + L_depth + L_inst + 4 :, :]
 
         # mask feature reconstruction, only positive samples are involved
         feature_mask_rgb = feature_mask_rgb[positive_idx]
         feature_mask_depth = feature_mask_depth[positive_idx]
-        rgb_rec = self.rgb_reconstruction(rgb_out[feature_mask_rgb])
-        depth_rec = self.depth_reconstruction(depth_out[feature_mask_depth])
-        loss_rec += F.mse_loss(rgb_rec, self.rgb_seq_features[feature_mask_rgb])
-        loss_rec += F.mse_loss(depth_rec, self.depth_seq_features[feature_mask_depth])
+        rgb_rec = self.rgb_reconstruction(rgb_out[feature_mask_rgb.logical_not()])
+        depth_rec = self.depth_reconstruction(
+            depth_out[feature_mask_depth.logical_not()]
+        )
+        loss_rec += F.mse_loss(
+            rgb_rec, self.rgb_seq_features[feature_mask_rgb.logical_not()]
+        )
+        loss_rec += F.mse_loss(
+            depth_rec, self.depth_seq_features[feature_mask_depth.logical_not()]
+        )
         feature_mask_inst = feature_mask_inst[positive_idx]
         feature_mask_sub = feature_mask_sub[positive_idx]
-        inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst])
-        sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub])
+        inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst.logical_not()])
+        sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub.logical_not()])
         loss_rec += (
-            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst]) / COEF_REC_INST
+            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst.logical_not()])
+            / COEF_REC_INST
         )
-        loss_rec += F.mse_loss(sub_rec, self.sub_features[feature_mask_sub])
+        loss_rec += F.mse_loss(
+            sub_rec, self.sub_features[feature_mask_sub.logical_not()]
+        )
 
         # mean feature reconstruction, only positive samples are involved
         rgb_mean_gt = self.rgb_seq_features.mean(dim=1)
@@ -1313,26 +1256,26 @@ class EENet(Net):
         depth_mean_rec = self.mean_depth_reconstruction(depth_cls[positive_idx])
         loss_mean += F.mse_loss(depth_mean_rec, depth_mean_gt)
         inst_mean_gt = self.inst_features.sum(dim=1) / (
-            (~(inst_mask[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            inst_mask[positive_idx].sum(dim=1, keepdim=True) + EPS
         )
         inst_mean_rec = self.mean_inst_reconstruction(inst_cls[positive_idx])
         loss_mean += F.mse_loss(inst_mean_rec, inst_mean_gt)
         sub_mean_gt = self.sub_features.sum(dim=1) / (
-            (~(sub_mask[positive_idx])).sum(dim=1, keepdim=True) + EPS
+            sub_mask[positive_idx].sum(dim=1, keepdim=True) + EPS
         )
         sub_mean_rec = self.mean_sub_reconstruction(sub_cls[positive_idx])
         loss_mean += F.mse_loss(sub_mean_rec, sub_mean_gt)
 
         # inner alignment, all samples are involved
         rgb_depth_cls = torch.cat([rgb_cls, depth_cls], dim=1)
-        align_pre_v = self.inner_alignment(rgb_depth_cls)
+        inner_pre_v = self.inner_alignment_v(rgb_depth_cls)
         loss_inner += F.binary_cross_entropy(
-            torch.sigmoid(align_pre_v.squeeze()), inner_gt.float()
+            torch.sigmoid(inner_pre_v.squeeze()), inner_gt.float()
         )
         inst_sub_cls = torch.cat([inst_cls, sub_cls], dim=1)
-        align_pre_l = self.inner_alignment(inst_sub_cls)
+        inner_pre_l = self.inner_alignment_l(inst_sub_cls)
         loss_inner += F.binary_cross_entropy(
-            torch.sigmoid(align_pre_l.squeeze()), inner_gt.float()
+            torch.sigmoid(inner_pre_l.squeeze()), inner_gt.float()
         )
 
         # outer alignment, all samples are involved
@@ -1351,9 +1294,9 @@ class EENet(Net):
             "loss_outer": loss_outer,
         }, {
             "inner_gt_v": inner_gt,
-            "inner_pre_v": align_pre_v,
+            "inner_pre_v": inner_pre_v,
             "inner_gt_l": inner_gt,
-            "inner_pre_l": align_pre_l,
+            "inner_pre_l": inner_pre_l,
             "outer_gt": outer_gt,
             "outer_pre": align_pre,
         }
