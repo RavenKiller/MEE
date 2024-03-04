@@ -22,6 +22,7 @@ from habitat_baselines.common.obs_transformers import (
 from habitat_baselines.common.tensorboard_utils import TensorboardWriter
 from habitat_baselines.utils.common import batch_obs
 
+sys.path.append("/root/EvoEnc/") # noqa: E402
 from evoenc.common.aux_losses import AuxLosses
 from evoenc.common.base_il_trainer import BaseVLNCETrainer
 from evoenc.common.env_utils import construct_envs
@@ -29,7 +30,6 @@ from evoenc.common.utils import extract_instruction_tokens
 from evoenc.config.default import get_config
 
 
-sys.path.append("/root/EvoEnc/")
 os.environ["MAGNUM_LOG"] = "quiet"
 os.environ["HABITAT_SIM_LOG"] = "quiet"
 

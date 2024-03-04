@@ -341,7 +341,8 @@ _C.MODEL.DEPTH_ENCODER.final_relu = True
 
 ### For RGB
 _C.MODEL.CLIP = CN()
-_C.MODEL.CLIP.model_name = "openai/clip-vit-base-patch32"
+# _C.MODEL.CLIP.model_name = "openai/clip-vit-base-patch32"
+_C.MODEL.CLIP.model_name = "facebook/vit-mae-base"
 _C.MODEL.CLIP.output_size = 512
 _C.MODEL.CLIP.feature_size = 256  # in type0, it is 256
 _C.MODEL.CLIP.hidden_size = 768

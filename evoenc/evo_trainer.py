@@ -37,6 +37,7 @@ from transformers import (
     BertTokenizerFast,
     RobertaTokenizer,
     AutoTokenizer,
+    AutoImageProcessor,
 )
 
 from evoenc.common.aux_losses import AuxLosses
@@ -44,9 +45,9 @@ from evoenc.common.base_il_trainer import BaseVLNCETrainer
 from evoenc.common.env_utils import construct_envs
 from evoenc.common.utils import extract_instruction_tokens
 
-from accelerate import Accelerator
+# from accelerate import Accelerator
 
-accelerator = Accelerator()
+# accelerator = Accelerator()
 
 RAND_MIN = 25
 RAND_MAX = 100000
@@ -113,13 +114,13 @@ class Stage1Dataset(torch.utils.data.Dataset):
         self,
         config,
         split="train",
-        data_frac=0.75,
+        data_frac=0.8,
     ):
         super().__init__()
         self.config = config
         folder = Path(config.PRETRAIN.STAGE1.folder)
-        if os.path.exists(folder / "stage1_files.json"):
-            with open(folder / "stage1_files.json", "r") as f:
+        if os.path.exists(folder / "stage1_files{}.json".format(data_frac)):
+            with open(folder / "stage1_files{}.json".format(data_frac), "r") as f:
                 files = json.load(f)
             self.rgb = files["rgb"]
             self.depth = files["depth"]
@@ -136,9 +137,10 @@ class Stage1Dataset(torch.utils.data.Dataset):
                 "text": [str(v) for v in self.text],
                 "sub": [str(v) for v in self.sub],
             }
-            with open(folder / "stage1_files.json", "w") as f:
+            with open(folder / "stage1_files{}.json".format(data_frac), "w") as f:
                 json.dump(files, f)
             del files
+        logger.info("Dataset size: ({}, {}, {}, {})".format(len(self.rgb), len(self.depth), len(self.text), len(self.sub)))
         # Solve the OOM problem
         self.rgb = np.array([str(v) for v in self.rgb]).astype(np.string_)
         self.depth = np.array([str(v) for v in self.depth]).astype(np.string_)
@@ -146,10 +148,12 @@ class Stage1Dataset(torch.utils.data.Dataset):
         self.sub = np.array([str(v) for v in self.sub]).astype(np.string_)
 
         self.data_frac = data_frac
-
-        self.rgb_processor = CLIPImageProcessor.from_pretrained(
-            config.MODEL.CLIP.model_name
-        )
+        if "mae" in config.MODEL.CLIP.model_name:
+            self.rgb_processor = AutoImageProcessor.from_pretrained(config.MODEL.CLIP.model_name)
+        else:# use clip
+            self.rgb_processor = CLIPImageProcessor.from_pretrained(
+                config.MODEL.CLIP.model_name
+            )
         self.depth_processor = CLIPImageProcessor.from_pretrained(
             config.MODEL.TAC.model_name
         )
@@ -174,7 +178,7 @@ class Stage1Dataset(torch.utils.data.Dataset):
         text_path = self.text[idx % len(self.text)]
         sub_path = self.sub[idx % len(self.sub)]
 
-        rgb = Image.open(rgb_path)
+        rgb = Image.open(rgb_path).convert("RGB")
         rgb = self.rgb_processor(images=rgb, return_tensors="pt").pixel_values.squeeze(
             0
         )
@@ -253,9 +257,12 @@ class Stage2Dataset(torch.utils.data.Dataset):
 
         self.data_frac = data_frac
         self.positive_ratio = positive_ratio
-        self.rgb_processor = CLIPImageProcessor.from_pretrained(
-            config.MODEL.CLIP.model_name
-        )
+        if "mae" in config.MODEL.CLIP.model_name:
+            self.rgb_processor = AutoImageProcessor.from_pretrained(config.MODEL.CLIP.model_name)
+        else:# use clip
+            self.rgb_processor = CLIPImageProcessor.from_pretrained(
+                config.MODEL.CLIP.model_name
+            )
         self.depth_processor = CLIPImageProcessor.from_pretrained(
             config.MODEL.TAC.model_name
         )
@@ -366,9 +373,12 @@ class Stage3Dataset(torch.utils.data.Dataset):
         self.data_frac = data_frac
         self.positive_ratio = positive_ratio
         self.inner_positive_ratio = inner_positive_ratio
-        self.rgb_processor = CLIPImageProcessor.from_pretrained(
-            config.MODEL.CLIP.model_name
-        )
+        if "mae" in config.MODEL.CLIP.model_name:
+            self.rgb_processor = AutoImageProcessor.from_pretrained(config.MODEL.CLIP.model_name)
+        else:# use clip
+            self.rgb_processor = CLIPImageProcessor.from_pretrained(
+                config.MODEL.CLIP.model_name
+            )
         self.depth_processor = CLIPImageProcessor.from_pretrained(
             config.MODEL.TAC.model_name
         )
@@ -498,9 +508,12 @@ class SkipRandomSampler(torch.utils.data.RandomSampler):
                     high=n, size=(self.num_samples,), dtype=torch.int64
                 ).tolist()
             )
-        res = torch.randperm(n)
-        res[: self.skip_samples] = -1
-        return iter(res.tolist())
+        if self.skip_samples>0:
+            res = torch.randperm(n)
+            res[: self.skip_samples] = -1
+            return iter(res.tolist())
+        else:
+            return iter(torch.randperm(n).tolist())
 
 
 @baseline_registry.register_trainer(name="evopretrainer")
@@ -588,7 +601,6 @@ class PreTrainer(BaseVLNCETrainer):
             "config": self.config,
         }
         torch.save(checkpoint, os.path.join(self.config.CHECKPOINT_FOLDER, file_name))
-
     def train(self):
         observation_space, action_space = self._get_spaces(self.config)
         self._initialize_policy(
@@ -612,7 +624,7 @@ class PreTrainer(BaseVLNCETrainer):
             dataset,
             batch_size=self.stage_config.batch_size,
             shuffle=False,
-            num_workers=4,
+            num_workers=6,
             collate_fn=stage_collate_fn,
             pin_memory=False,
             sampler=SkipRandomSampler(
@@ -620,9 +632,10 @@ class PreTrainer(BaseVLNCETrainer):
             ),
         )
 
-        self.policy, self.optimizer, dataloader, self.scheduler = accelerator.prepare(
-            self.policy, self.optimizer, dataloader, self.scheduler
-        )
+        # self.policy, self.optimizer, dataloader, self.scheduler = accelerator.prepare(
+        #     self.policy, self.optimizer, dataloader, self.scheduler
+        # )
+        # if accelerator.is_main_process:
         writer = SummaryWriter(
             os.path.join(
                 self.config.TENSORBOARD_DIR,
@@ -635,7 +648,7 @@ class PreTrainer(BaseVLNCETrainer):
         for epoch in tqdm.trange(self.stage_config.epochs, dynamic_ncols=True):
             batch_bar = tqdm.tqdm(
                 dataloader,
-                total=len(dataloader.dataset) // self.stage_config.batch_size,
+                total=len(dataloader),
                 leave=False,
                 dynamic_ncols=True,
             )
@@ -650,8 +663,8 @@ class PreTrainer(BaseVLNCETrainer):
                 for i, k in enumerate(losses):
                     w = self.stage_config.loss_weights[i]
                     total_loss += w * losses[k]
-                # total_loss.backward()
-                accelerator.backward(total_loss)
+                total_loss.backward()
+                # accelerator.backward(total_loss)
                 if self.max_grad_norm:
                     torch.nn.utils.clip_grad_norm_(
                         self.policy.parameters(), self.max_grad_norm
@@ -695,9 +708,9 @@ class PreTrainer(BaseVLNCETrainer):
             collate_fn=stage_collate_fn,
             # pin_memory=True
         )
-        self.policy, self.optimizer, dataloader, self.scheduler = accelerator.prepare(
-            self.policy, self.optimizer, dataloader, self.scheduler
-        )
+        # self.policy, self.optimizer, dataloader, self.scheduler = accelerator.prepare(
+        #     self.policy, self.optimizer, dataloader, self.scheduler
+        # )
         writer = SummaryWriter(
             os.path.join(
                 self.config.TENSORBOARD_DIR,
@@ -725,8 +738,8 @@ class PreTrainer(BaseVLNCETrainer):
                 for i, k in enumerate(losses):
                     w = self.stage_config.loss_weights[i]
                     total_loss += w * (losses[k])
-                # total_loss.backward()
-                accelerator.backward(total_loss)
+                total_loss.backward()
+                # accelerator.backward(total_loss)
                 if self.max_grad_norm:
                     torch.nn.utils.clip_grad_norm_(
                         self.policy.parameters(), self.max_grad_norm

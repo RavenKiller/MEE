@@ -3,13 +3,11 @@ TRAINER_NAME: dagger_transformer # dagger, or recollect_trainer
 DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
 TORCH_GPU_ID: 0
-NUM_ENVIRONMENTS: 8
+NUM_ENVIRONMENTS: 10
 TENSORBOARD_DIR: data/tensorboard_dirs/transformer_aug
 CHECKPOINT_FOLDER: data/checkpoints/transformer_aug
 EVAL_CKPT_PATH_DIR: data/checkpoints/transformer_aug
 RESULTS_DIR: data/checkpoints/transformer_aug/evals
-ENVIRONMENT:
-  MAX_EPISODE_STEPS: 100
 
 EVAL:
   USE_CKPT_CONFIG: False

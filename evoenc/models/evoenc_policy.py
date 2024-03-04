@@ -19,7 +19,7 @@ from habitat_baselines.rl.ppo.policy import Net
 from torch import Tensor
 
 from evoenc.common.aux_losses import AuxLosses
-from transformers import CLIPVisionModel, BertModel, RobertaModel, AutoModel
+from transformers import CLIPVisionModel, BertModel, RobertaModel, AutoModel, ViTMAEModel
 from transformers import BertConfig
 from sentence_transformers import SentenceTransformer
 
@@ -160,9 +160,14 @@ class EENet(Net):
         self._masked_feature_ratio = config.PRETRAIN.masked_feature_ratio
 
         # Init the CLIP rgb encoder
-        self.clip_encoder = CLIPVisionModel.from_pretrained(
-            config.MODEL.CLIP.model_name
-        )
+        if "mae" in config.MODEL.CLIP.model_name:
+            self.clip_encoder = ViTMAEModel.from_pretrained(
+                config.MODEL.CLIP.model_name
+            )
+        else:
+            self.clip_encoder = CLIPVisionModel.from_pretrained(
+                config.MODEL.CLIP.model_name
+            )
         # Init the TAC depth encoder
         self.tac_encoder = CLIPVisionModel.from_pretrained(config.MODEL.TAC.model_name)
         # Init the BERT text encoder
@@ -384,11 +389,16 @@ class EENet(Net):
         if "rgb_seq_features" in observations:  # [B, L_rgb, D]
             rgb_seq_features = observations["rgb_seq_features"]
         else:
-            rgb_observations = observations["rgb"]
-            rgb_seq_features = self.clip_encoder(
-                pixel_values=rgb_observations
-            ).last_hidden_state
-            rgb_seq_features = F.normalize(rgb_seq_features, dim=-1)
+            if "mae" in self.config.MODEL.CLIP.model_name:
+                rgb_observations = observations["rgb"]
+                rgb_seq_features = self.clip_encoder(
+                    pixel_values=rgb_observations
+                ).last_hidden_state
+            else:
+                rgb_observations = observations["rgb"]
+                rgb_seq_features = self.clip_encoder(
+                    pixel_values=rgb_observations, output_hidden_states=True
+                ).hidden_states[-2]
         return rgb_seq_features
 
     def encode_depth(self, observations):
@@ -397,9 +407,8 @@ class EENet(Net):
         else:
             depth_observations = observations["depth"]
             depth_seq_features = self.tac_encoder(
-                pixel_values=depth_observations
-            ).last_hidden_state
-            depth_seq_features = F.normalize(depth_seq_features, dim=-1)
+                pixel_values=depth_observations, output_hidden_states=True
+            ).hidden_states[-2]
         return depth_seq_features
 
     def encode_inst(self, observations):
