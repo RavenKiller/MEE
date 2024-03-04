@@ -612,7 +612,7 @@ class PreTrainer(BaseVLNCETrainer):
             dataset,
             batch_size=self.stage_config.batch_size,
             shuffle=False,
-            num_workers=8,
+            num_workers=4,
             collate_fn=stage_collate_fn,
             pin_memory=False,
             sampler=SkipRandomSampler(
@@ -691,7 +691,7 @@ class PreTrainer(BaseVLNCETrainer):
             dataset,
             batch_size=self.stage_config.batch_size,
             shuffle=True,
-            num_workers=8,
+            num_workers=6,
             collate_fn=stage_collate_fn,
             # pin_memory=True
         )
