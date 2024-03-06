@@ -19,6 +19,7 @@ from habitat_baselines.rl.ppo.policy import Net
 from torch import Tensor
 
 from evoenc.common.aux_losses import AuxLosses
+from evoenc.models.encoders import clip_encoders
 
 # from vlnce_baselines.models.encoders import resnet_encoders
 from evoenc.models.encoders.transformer_encoder import Transformer, LayerNorm
