@@ -214,14 +214,14 @@ class Stage2Dataset(torch.utils.data.Dataset):
         self,
         config,
         split="train",
-        positive_ratio=0.33,
-        data_frac=0.75,
+        positive_ratio=0.5,
+        data_frac=1.0,
     ):
         super().__init__()
         self.config = config
         folder = Path(config.PRETRAIN.STAGE2.folder)
-        if os.path.exists(folder / "stage2_files.json"):
-            with open(folder / "stage2_files.json", "r") as f:
+        if os.path.exists(folder / "stage2_files{}.json".format(data_frac)):
+            with open(folder / "stage2_files{}.json".format(data_frac), "r") as f:
                 files = json.load(f)
             self.rgb = files["rgb"][0:1000]
             self.depth = files["depth"][0:1000]
@@ -238,7 +238,7 @@ class Stage2Dataset(torch.utils.data.Dataset):
                 "text": [str(v) for v in self.text],
                 "sub": [str(v) for v in self.sub],
             }
-            with open(folder / "stage2_files.json", "w") as f:
+            with open(folder / "stage2_files{}.json".format(data_frac), "w") as f:
                 json.dump(files, f)
         # Solve the OOM problem
         self.rgb = np.array([str(v) for v in self.rgb]).astype(np.string_)
@@ -329,7 +329,7 @@ class Stage3Dataset(torch.utils.data.Dataset):
         self,
         config,
         split="train",
-        positive_ratio=0.33,
+        positive_ratio=0.5,
         inner_positive_ratio=0.5,
         data_frac=0.75,
     ):

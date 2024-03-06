@@ -1,8 +1,8 @@
 BASE_TASK_CONFIG_PATH: habitat_extensions/config/vlnce_t.yaml
 TRAINER_NAME: evopretrainer # dagger, or recollect_trainer
 DEBUG: False
-SIMULATOR_GPU_ID: 0 # new version
-TORCH_GPU_ID: 0
+SIMULATOR_GPU_ID: 1 # new version
+TORCH_GPU_ID: 1
 NUM_ENVIRONMENTS: 6
 TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_s2
 CHECKPOINT_FOLDER: data/checkpoints/evoenc_s2
@@ -14,12 +14,12 @@ PRETRAIN:
   excludes: []
   is_requeue: False
   STAGE2:
-    lr: 1.0e-5
+    lr: 1.5e-5
     epochs: 1
     save_steps: 10000
-    batch_size: 64
-    load_from_ckpt: False
-    ckpt_to_load: /root/EvoEnc/data/checkpoints/evoenc_s1/ckpt.EEPolicy.step10000.pth
+    batch_size: 128
+    load_from_ckpt: True
+    ckpt_to_load: /root/EvoEnc/data/checkpoints/evoenc_s1/ckpt.EEPolicy.epoch0.pth
     loss_weights: [0.5, 0.5, 1.0]
 
 MODEL:

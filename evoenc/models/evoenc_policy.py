@@ -133,7 +133,7 @@ class EEPolicy(ILPolicy):
         self,
         state_dict: "OrderedDict[str, Tensor]",
         strict: bool = True,
-        excludes: list = ["clip_encoder", "depth_encoder"],
+        excludes: list = ["clip_encoder", "tac_encoder","bert_encoder","sbert_encoder"],
     ):
         """Load state dict without pre-trained encoders"""
         state_dict_ret = self.state_dict()
