@@ -401,12 +401,12 @@ _C.MODEL.EVOENC.freeze_weights = -1  # -1: not freeze;
 # 0: freeze layers before transformer
 # 1: freeze preLN
 # x>=1: freeze blcks[0:x]
-_C.MODEL.EVOENC.prev_action = False  # cat or add
+_C.MODEL.EVOENC.prev_action = True 
 
 
 # Different states are stacked at layer dim, so their feature sizes must be same.
 _C.MODEL.STATE_ENCODER = CN()
-_C.MODEL.STATE_ENCODER.hidden_size = 512
+_C.MODEL.STATE_ENCODER.hidden_size = 768
 _C.MODEL.STATE_ENCODER.rnn_type_low = "GRU"
 _C.MODEL.STATE_ENCODER.num_layers_low = 1
 _C.MODEL.STATE_ENCODER.rnn_type_high = "GRU"

@@ -44,21 +44,12 @@ from evoenc.common.aux_losses import AuxLosses
 from evoenc.common.base_il_trainer import BaseVLNCETrainer
 from evoenc.common.env_utils import construct_envs
 from evoenc.common.utils import extract_instruction_tokens
+from evoenc.common.constants import *
 
 # from accelerate import Accelerator
 
 # accelerator = Accelerator()
 
-RAND_MIN = 25
-RAND_MAX = 100000
-MIN_DEPTH = 0.0
-MAX_DEPTH = 10.0
-DEPTH_SCALE = 1000.0
-LEN = 256
-PAD_IDX = 1
-SUB_PAD_IDX = 1
-SUB_LEN = 50
-SUB_NUM = 12
 
 
 def get_warmup_scheduler(optimizer, warmup_steps):
@@ -298,7 +289,7 @@ class Stage2Dataset(torch.utils.data.Dataset):
         )
 
         depth = Image.open(depth_path)
-        depth = np.array(depth).astype("float32") / DEPTH_SCALE  # to meters
+        depth = np.array(depth).astype(float) / DEPTH_SCALE  # to meters
         depth = np.clip(depth, MIN_DEPTH, MAX_DEPTH)  # clip to [MIN_DEPTH, MAX_DEPTH]
         depth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH)  # normalize to [0,1]
         depth = np.expand_dims(depth, axis=2).repeat(3, axis=2)  # extend to 3 channels

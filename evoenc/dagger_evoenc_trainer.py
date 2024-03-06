@@ -10,6 +10,14 @@ import msgpack_numpy
 import numpy as np
 import torch
 import tqdm
+from transformers import (
+    AutoProcessor,
+    CLIPImageProcessor,
+    BertTokenizerFast,
+    RobertaTokenizer,
+    AutoTokenizer,
+    AutoImageProcessor,
+)
 from habitat import logger
 from habitat_baselines.common.baseline_registry import baseline_registry
 from habitat_baselines.common.environments import get_env_class
@@ -17,12 +25,12 @@ from habitat_baselines.common.obs_transformers import (
     apply_obs_transforms_batch,
 )
 from habitat_baselines.common.tensorboard_utils import TensorboardWriter
-from habitat_baselines.utils.common import batch_obs
+# from habitat_baselines.utils.common import batch_obs
 
 from evoenc.common.aux_losses import AuxLosses
 from evoenc.common.base_il_trainer import BaseVLNCETrainer
 from evoenc.common.env_utils import construct_envs
-from evoenc.common.utils import extract_instruction_tokens
+from evoenc.common.utils import extract_instruction_tokens, batch_obs
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -232,6 +240,25 @@ class DaggerTTrainer(BaseVLNCETrainer):
             split=config.TASK_CONFIG.DATASET.SPLIT
         )
         super().__init__(config)
+        if "mae" in config.MODEL.CLIP.model_name:
+            self.rgb_processor = AutoImageProcessor.from_pretrained(config.MODEL.CLIP.model_name)
+        else:# use clip
+            self.rgb_processor = CLIPImageProcessor.from_pretrained(
+                config.MODEL.CLIP.model_name
+            )
+        self.depth_processor = CLIPImageProcessor.from_pretrained(
+            config.MODEL.TAC.model_name
+        )
+        self.text_processor = RobertaTokenizer.from_pretrained(
+            config.MODEL.BERT.model_name
+        )
+        self.sub_processor = AutoTokenizer.from_pretrained(
+            config.MODEL.SBERT.model_name
+        )
+        self.processors = {
+            "rgb": self.rgb_processor,
+            "depth": self.depth_processor,
+        }
 
     def _make_dirs(self) -> None:
         self._make_ckpt_dir()
@@ -271,7 +298,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
         observations = extract_instruction_tokens(
             observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
         )
-        batch = batch_obs(observations, self.device)
+        batch = batch_obs(observations, self.device, processors=self.processors)
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
         episodes = [[] for _ in range(envs.num_envs)]
@@ -323,6 +350,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
                         traj_obs = batch_obs(
                             [step[0] for step in ep],
                             device=torch.device("cpu"),
+                            processors=self.processors,
                         )
                         del traj_obs[expert_uuid]
                         for k, v in traj_obs.items():
@@ -390,24 +418,17 @@ class DaggerTTrainer(BaseVLNCETrainer):
                     actions,
                 )
                 # actions = batch[expert_uuid].long()
-                rgb_features = self.policy.net.get_rgb_features()
                 rgb_seq_features = self.policy.net.get_rgb_seq_features()
                 depth_seq_features = self.policy.net.get_depth_seq_features()
-                sub_features = self.policy.net.get_sub_features()
 
                 for i in range(envs.num_envs):
-                    if rgb_features is not None:
-                        observations[i]["rgb_features"] = rgb_features[i]
+                    if rgb_seq_features is not None:
                         observations[i]["rgb_seq_features"] = rgb_seq_features[i]
                         del observations[i]["rgb"]
 
                     if depth_seq_features is not None:
                         observations[i]["depth_seq_features"] = depth_seq_features[i]
                         del observations[i]["depth"]
-
-                    if sub_features is not None:
-                        observations[i]["sub_features"] = sub_features[i]
-                        del observations[i]["sub_instruction"]
 
                     episodes[i].append(
                         (
@@ -432,7 +453,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
                     observations,
                     self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
                 )
-                batch = batch_obs(observations, self.device)
+                batch = batch_obs(observations, self.device, processors=self.processors)
                 batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
                 not_done_masks = torch.tensor(

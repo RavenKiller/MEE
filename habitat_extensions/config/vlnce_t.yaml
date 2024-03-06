@@ -15,8 +15,8 @@ SIMULATOR:
     HFOV: 90
     TYPE: HabitatSimRGBSensor
   DEPTH_SENSOR:
-    WIDTH: 256
-    HEIGHT: 256
+    WIDTH: 224
+    HEIGHT: 224
 TASK:
   TYPE: VLN-v0
   SUCCESS_DISTANCE: 3.0
@@ -47,5 +47,5 @@ TASK:
 DATASET:
   TYPE: VLN-CE-v1
   SPLIT: train
-  DATA_PATH: data/datasets/R2R_VLNCE_NRSub_T/{split}/{split}_sub.json.gz
+  DATA_PATH: data/datasets/R2R_VLNCE_NRSub_T/{split}/{split}_meev1.json.gz
   SCENES_DIR: data/scene_datasets/

@@ -20,6 +20,14 @@ import tqdm
 from gym import spaces
 from torch import nn
 from torch.optim.lr_scheduler import LambdaLR
+from transformers import (
+    AutoProcessor,
+    CLIPImageProcessor,
+    BertTokenizerFast,
+    RobertaTokenizer,
+    AutoTokenizer,
+    AutoImageProcessor,
+)
 
 from habitat import Config, VectorEnv, logger
 from habitat.utils import profiling_wrapper

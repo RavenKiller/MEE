@@ -19,8 +19,10 @@ from habitat_baselines.rl.ppo.policy import Net
 from torch import Tensor
 
 from evoenc.common.aux_losses import AuxLosses
+from evoenc.common.constants import PAD_IDX, SUB_PAD_IDX
 from transformers import CLIPVisionModel, BertModel, RobertaModel, AutoModel, ViTMAEModel
 from transformers import BertConfig
+from transformers.models.bert.modeling_bert import BertAttention
 from sentence_transformers import SentenceTransformer
 
 # from vlnce_baselines.models.encoders import resnet_encoders
@@ -74,6 +76,20 @@ def sub_mean_pooling(model_output, attention_mask):
     return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
         input_mask_expanded.sum(1), min=1e-9
     )
+def inf_mask(attention_mask):
+    dtype = torch.float32
+    if attention_mask.dim() == 3:
+        extended_attention_mask = attention_mask[:, None, :, :]
+    elif attention_mask.dim() == 2:
+        extended_attention_mask = attention_mask[:, None, None, :]
+    else:
+        raise ValueError(
+            f"Wrong shape for input_ids (attention_mask (shape {attention_mask.shape})"
+        )
+
+    extended_attention_mask = extended_attention_mask.to(dtype=dtype)  # fp16 compatibility
+    extended_attention_mask = (1.0 - extended_attention_mask) * torch.finfo(dtype).min
+    return extended_attention_mask
 
 
 class ReconstructionLayer(nn.Module):
@@ -286,17 +302,38 @@ class EENet(Net):
             num_layers=model_config.STATE_ENCODER.num_layers_action,
             dropout=dropout_ratio_rnn,
         )
-        self._num_recurrent_layers = self.action_rgb_decoder.num_recurrent_layers * 4
+        self.fuse_layer = nn.Sequential(
+            nn.Linear(model_config.STATE_ENCODER.hidden_size*4, self._hidden_size),
+            nn.GELU(),
+        )
+        
+        action_attn_config = BertConfig(
+            hidden_size=self._hidden_size,
+            num_attention_heads=self._transformer_heads,
+            hidden_dropout_prob=0,
+            attention_probs_dropout_prob=0,
+        )
+        self.action_attn_rgb = BertAttention(action_attn_config)
+        self.action_attn_depth = BertAttention(action_attn_config)
+        self.action_attn_inst = BertAttention(action_attn_config)
+        self.action_attn_sub = BertAttention(action_attn_config)
+
+        final_input_size = rnn_input_size*4+self._hidden_size*5
+        if model_config.EVOENC.prev_action:
+            final_input_size += self.prev_action_embedding.embedding_dim
+        self.action_decoder = build_rnn_state_encoder(
+            input_size=final_input_size,
+            hidden_size=model_config.STATE_ENCODER.hidden_size,
+            rnn_type=model_config.STATE_ENCODER.rnn_type_action,
+            num_layers=model_config.STATE_ENCODER.num_layers_action,
+            dropout=dropout_ratio_rnn,
+        )
+        self._num_recurrent_layers = self.action_rgb_decoder.num_recurrent_layers * 5
         self.s1 = self.action_rgb_decoder.num_recurrent_layers
         self.s2 = self.action_rgb_decoder.num_recurrent_layers * 2
         self.s3 = self.action_rgb_decoder.num_recurrent_layers * 3
         self.s4 = self.action_rgb_decoder.num_recurrent_layers * 4
-        input_size = self._hidden_size
-        # self.aggregate_ln = nn.LayerNorm(input_size)
-        self.aggregate_ln = nn.LayerNorm(input_size)
-        if model_config.EVOENC.aggregate == "cat":
-            self._output_size = self._hidden_size * 4
-            self.aggregate_ln = nn.Identity()
+        self.s5 = self.action_rgb_decoder.num_recurrent_layers * 5
 
         self.rgb_features = None
         self.depth_features = None
@@ -311,7 +348,9 @@ class EENet(Net):
             nn.init.kaiming_normal_(self.progress_monitor.weight, nonlinearity="tanh")
             nn.init.constant_(self.progress_monitor.bias, 0)
 
+        #############################################################
         # For pretrain, define some heads
+        #############################################################
         if model_config.EVOENC.learnable_mask:
             self.mask_embedding = nn.Parameter(torch.empty(1, 768))
         if self.config.PRETRAIN.stage != "NONE":
@@ -421,6 +460,8 @@ class EENet(Net):
             if inst_observations is None:
                 inst_observations = observations.get("text", None)
                 inst_mask = observations.get("text_mask", None)
+            if inst_mask is None:
+                inst_mask = (inst_observations!=PAD_IDX)
 
             inst_seq_features = self.roberta_encoder(
                 input_ids=inst_observations, attention_mask=inst_mask
@@ -437,6 +478,8 @@ class EENet(Net):
             if sub_observations is None:
                 sub_observations = observations.get("sub", None)
                 sub_mask = observations.get("sub_mask", None)
+            if sub_mask is None:
+                sub_mask = (sub_observations!=SUB_PAD_IDX)
             B, S, L = sub_observations.shape
             model_output = self.sbert_encoder(
                 input_ids=sub_observations.view((B * S, L)),
@@ -446,9 +489,6 @@ class EENet(Net):
                 model_output, sub_mask.view((B * S, L))
             ).view((B, S, -1))
         return sub_seq_features, sub_mask.any(dim=-1)
-
-    def get_rgb_features(self):
-        return self.rgb_features
 
     def get_rgb_seq_features(self):
         return self.rgb_seq_features
@@ -502,47 +542,41 @@ class EENet(Net):
         prev_actions: Tensor,
         masks: Tensor,
     ) -> Tuple[Tensor, Tensor]:
-        # Embedding
+        #################################################
+        # Embeddings
+        #################################################
         rgb_seq_features = self.encode_rgb(observations)
         depth_seq_features = self.encode_depth(observations)
         inst_seq_features, inst_mask = self.encode_inst(observations)
         sub_seq_features, sub_mask = self.encode_sub(observations)
-        rgb_embedding_seq = rgb_seq_features
-        depth_embedding_seq = depth_seq_features
-        instruction_embedding = inst_seq_features
-        sub_instruction_embedding = sub_seq_features
-        rgb_embedding = rgb_seq_features[:, 0, :]
+        device = rgb_seq_features.device
 
-        # (T*N,D) -> (T*N,W,D)
         if "rgb_seq_features" not in observations:  # No dagger or eval
             # Cached features
             self.rgb_seq_features = rgb_seq_features
-            self.rgb_features = rgb_seq_features
             self.depth_seq_features = depth_seq_features
-            self.inst_features = inst_seq_features
-            self.sub_features = sub_seq_features
+            self.inst_seq_features = inst_seq_features
+            self.sub_seq_features = sub_seq_features
         if self.model_config.EVOENC.prev_action:
             prev_actions = self.prev_action_embedding(
                 ((prev_actions.float() + 1) * masks).long().view(-1)
             )
 
         # FC
-        rgb_embedding_seq = torch.cat(
-            [rgb_seq_features.unsqueeze(2), rgb_embedding_seq], dim=2
-        ).permute(
-            0, 2, 1
-        )  # (N, D, L+1)
-        depth_embedding_seq = depth_embedding_seq.permute(0, 2, 1)
-        instruction_embedding = self.inst_fc(instruction_embedding)
-        sub_instruction_embedding = self.sub_fc(sub_instruction_embedding)
-        rgb_embedding_seq = self.rgb_fc(rgb_embedding_seq)
-        depth_embedding_seq = self.depth_fc(depth_embedding_seq)
+        rgb_embedding_seq = self.rgb_fc(rgb_seq_features)
+        depth_embedding_seq = self.depth_fc(depth_seq_features)
+        instruction_embedding = self.inst_fc(inst_seq_features)
+        sub_instruction_embedding = self.sub_fc(sub_seq_features)
 
-        ## Construct input sequence
         # Token
         token_embeddings = self.token_embedding.expand(
             (rgb_embedding_seq.shape[0], -1, -1)
-        ).clone()
+        )
+
+        #################################################
+        # All modalities
+        #################################################
+        ## Construct input sequence
         # Concat
         seq_embedding = torch.cat(
             [
@@ -557,127 +591,101 @@ class EENet(Net):
             ],
             dim=1,
         )
-        # Extra embedding
-        if self.pe_type == "position":
-            seq_embedding = seq_embedding + self.positional_embedding.expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-        elif self.pe_type == "token":
-            a = self.type_embedding[0:1, :].repeat((self.rgb_len + 1, 1))
-            b = self.type_embedding[1:2, :].repeat((self.depth_len + 1, 1))
-            c = self.type_embedding[2:3, :].repeat((self.instruction_len + 1, 1))
-            d = self.type_embedding[3:4, :].repeat((self.sub_len + 1, 1))
-            token_ids_embedding = torch.cat([a, b, c, d], dim=0).expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-            seq_embedding = (
-                seq_embedding
-                + token_ids_embedding
-                + self.positional_embedding.expand((seq_embedding.shape[0], -1, -1))
-            )
-        elif self.pe_type == "split_position":
-            a = self.positional_embedding[0 : self.rgb_len + 1, :]
-            b = self.positional_embedding[0 : self.depth_len + 1, :]
-            c = self.positional_embedding[0 : self.instruction_len + 1, :]
-            d = self.positional_embedding[0 : self.sub_len + 1, :]
-            split_position_embedding = torch.cat([a, b, c, d], dim=0).expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-            seq_embedding = seq_embedding + split_position_embedding
-        elif self.pe_type == "pt":
-            a = self.positional_embedding[0 : self.rgb_len + 1, :]
-            b = self.positional_embedding[0 : self.depth_len + 1, :]
-            c = self.positional_embedding[0 : self.instruction_len + 1, :]
-            d = self.positional_embedding[0 : self.sub_len + 1, :]
-            split_position_embedding = torch.cat([a, b, c, d], dim=0).expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-            a = self.type_embedding[0:1, :].repeat((self.rgb_len + 1, 1))
-            b = self.type_embedding[1:2, :].repeat((self.depth_len + 1, 1))
-            c = self.type_embedding[2:3, :].repeat((self.instruction_len + 1, 1))
-            d = self.type_embedding[3:4, :].repeat((self.sub_len + 1, 1))
-            token_ids_embedding = torch.cat([a, b, c, d], dim=0).expand(
-                (seq_embedding.shape[0], -1, -1)
-            )
-            seq_embedding = (
-                seq_embedding + split_position_embedding + token_ids_embedding
-            )
 
-        ## Attention mask, masking positions (empty words, empty subs)
-        start_inst = 3 + self.depth_len + self.rgb_len
-        start_sub = 4 + self.depth_len + self.rgb_len + self.instruction_len
-        T_N = seq_embedding.shape[0]
-        # (T*N, heads, L, L)
-        attn_mask = torch.zeros(
-            (T_N, self._transformer_heads, self.total_len, self.total_len), dtype=bool
-        ).to(rgb_embedding.device)
-        # (T*N, Linst) -> (T*N, heads, Linst, Linst)
-        inst_mask = (
-            inst_mask.unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, self._transformer_heads, self.total_len, -1)
+        # Modality type ids
+        B, L_rgb, D_rgb = rgb_embedding_seq.shape
+        B, L_depth, D_depth = depth_embedding_seq.shape
+        B, L_inst, D_inst = instruction_embedding.shape
+        B, L_sub, D_sub = sub_instruction_embedding.shape
+
+        all_type_ids = torch.cat(
+            [
+                torch.ones((B, L_rgb + 1), dtype=int, device=device) * RGB,
+                torch.ones((B, L_depth + 1), dtype=int, device=device) * DEP,
+                torch.ones((B, L_inst + 1), dtype=int, device=device) * INS,
+                torch.ones((B, L_sub + 1), dtype=int, device=device) * SUB,
+            ],
+            dim=1,
         )
-        sub_mask = (
-            sub_mask.unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, self._transformer_heads, self.total_len, -1)
+        # Attention mask
+        attn_mask = torch.ones(
+            (B, L_rgb + L_depth + L_inst + L_sub + 4), dtype=int, device=device
         )
-        # Fill
-        attn_mask[:, :, :, start_inst : start_sub - 1] = inst_mask
-        attn_mask[:, :, :, start_sub:] = sub_mask
-        attn_mask = attn_mask.reshape((-1, self.total_len, self.total_len))
-        self.attn_mask = attn_mask
+        attn_mask[:, L_rgb + L_depth + 3 : L_rgb + L_depth + L_inst + 3] = inst_mask
+        attn_mask[:, L_rgb + L_depth + L_inst + 4 :] = sub_mask
 
         # Transformer blocks
-        seq_out = self._t_forward(seq_embedding, attn_mask)
+        seq_out = self._t_forward(
+            seq_embedding, attention_mask=attn_mask, token_type_ids=all_type_ids
+        )
 
         # Total feature, select
-        rgb_feature = seq_out[:, 0, :].to(dtype=rnn_states.dtype)
-        depth_feature = seq_out[:, self.rgb_len + 1, :].to(dtype=rnn_states.dtype)
-        inst_feature = seq_out[:, self.rgb_len + self.depth_len + 2, :].to(
-            dtype=rnn_states.dtype
-        )
-        sub_feature = seq_out[
-            :, self.rgb_len + self.depth_len + self.instruction_len + 3, :
-        ].to(dtype=rnn_states.dtype)
+        rgb_cls = seq_out[:, 0, :].to(dtype=rnn_states.dtype)
+        depth_cls = seq_out[:, L_rgb + 1, :].to(dtype=rnn_states.dtype)
+        inst_cls = seq_out[:, L_rgb + L_depth + 2, :].to(dtype=rnn_states.dtype)
+        sub_cls = seq_out[:, L_rgb + L_depth + L_inst + 3, :].to(dtype=rnn_states.dtype)
+        # rgb_out = seq_out[:,1 : L_rgb + 1, ]
+        # depth_out = seq_out[:, L_rgb + 2 : L_rgb + L_depth + 2, :]
+        # inst_out = seq_out[:, L_rgb + L_depth + 3 : L_rgb + L_depth + L_inst + 3, :]
+        # sub_out = seq_out[:, L_rgb + L_depth + L_inst + 4 :, :]
 
         if self.model_config.EVOENC.prev_action:
-            rgb_feature = torch.cat([rgb_feature, prev_actions], dim=1)
-            depth_feature = torch.cat([depth_feature, prev_actions], dim=1)
-            inst_feature = torch.cat([inst_feature, prev_actions], dim=1)
-            sub_feature = torch.cat([sub_feature, prev_actions], dim=1)
+            rgb_cls = torch.cat([rgb_cls, prev_actions], dim=1)
+            depth_cls = torch.cat([depth_cls, prev_actions], dim=1)
+            inst_cls = torch.cat([inst_cls, prev_actions], dim=1)
+            sub_cls = torch.cat([sub_cls, prev_actions], dim=1)
 
+        #################################################
         # Decoder
+        #################################################
         rnn_states_out = rnn_states.detach().clone()
         rgb_feature, rnn_states_out[:, 0 : self.s1] = self.action_rgb_decoder(
-            rgb_feature,
+            rgb_cls,
             rnn_states[:, 0 : self.s1],
             masks,
         )
         depth_feature, rnn_states_out[:, self.s1 : self.s2] = self.action_depth_decoder(
-            depth_feature,
+            depth_cls,
             rnn_states[:, self.s1 : self.s2],
             masks,
         )
         inst_feature, rnn_states_out[:, self.s2 : self.s3] = self.action_inst_decoder(
-            inst_feature,
+            inst_cls,
             rnn_states[:, self.s2 : self.s3],
             masks,
         )
         sub_feature, rnn_states_out[:, self.s3 : self.s4] = self.action_sub_decoder(
-            sub_feature,
+            sub_cls,
             rnn_states[:, self.s3 : self.s4],
             masks,
         )
-        if self.model_config.EVOENC.aggregate == "cat":
-            total_feature = torch.cat(
-                [rgb_feature, depth_feature, inst_feature, sub_feature], dim=1
-            )
-            total_feature = self.aggregate_ln(total_feature)
-        elif self.model_config.EVOENC.aggregate == "add":
-            total_feature = rgb_feature + depth_feature + inst_feature + sub_feature
-            total_feature = self.aggregate_ln(total_feature)
-        x = total_feature
+        fused_feature = self.fuse_layer(torch.cat((rgb_feature, depth_feature, inst_feature, sub_feature), dim=1))
+
+        # Decoder attention
+        attn_rgb_feature = self.action_attn_rgb(hidden_states=fused_feature[:,None,:], encoder_hidden_states=rgb_seq_features)[0].squeeze(1)
+        attn_depth_feature = self.action_attn_depth(hidden_states=fused_feature[:,None,:], encoder_hidden_states=depth_seq_features)[0].squeeze(1)
+        attn_inst_feature = self.action_attn_inst(hidden_states=fused_feature[:,None,:], encoder_hidden_states=inst_seq_features, encoder_attention_mask=inf_mask(inst_mask))[0].squeeze(1)
+        attn_sub_feature = self.action_attn_sub(hidden_states=fused_feature[:,None,:], encoder_hidden_states=sub_seq_features,encoder_attention_mask=inf_mask(sub_mask))[0].squeeze(1)
+
+        total_feature = torch.cat((
+            rgb_cls,
+            depth_cls,
+            inst_cls,
+            sub_cls,
+            fused_feature,
+            attn_rgb_feature,
+            attn_depth_feature,
+            attn_inst_feature,
+            attn_sub_feature
+        ), dim=1)
+        if self.model_config.EVOENC.prev_action:
+            total_feature = torch.cat((total_feature, prev_actions), dim=1)
+        
+        x, rnn_states_out[:, self.s4 : self.s5] = self.action_decoder(
+            total_feature,
+            rnn_states[:, self.s4 : self.s5],
+            masks,
+        )
 
         # AuxLosses
         if self.model_config.PROGRESS_MONITOR.use and AuxLosses.is_active():

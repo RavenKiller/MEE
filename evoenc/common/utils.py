@@ -1,5 +1,15 @@
 from collections import defaultdict
-from typing import Any, DefaultDict, Dict, List, Optional
+from typing import (
+    Any,
+    DefaultDict,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
+import attr
 
 # import numpy as np
 import torch
@@ -74,12 +84,59 @@ def single_frame_box_shape(box: spaces.Box) -> spaces.Box:
     )
 
 
+@attr.s(auto_attribs=True, slots=True)
+class ObservationBatchingCache:
+    r"""Helper for batching observations that maintains a cpu-side tensor
+    that is the right size and is pinned to cuda memory
+    """
+    _pool: Dict[Any, Union[torch.Tensor, np.ndarray]] = attr.Factory(dict)
+
+    def get(
+        self,
+        num_obs: int,
+        sensor_name: str,
+        sensor: torch.Tensor,
+        device: Optional[torch.device] = None,
+    ) -> Union[torch.Tensor, np.ndarray]:
+        r"""Returns a tensor of the right size to batch num_obs observations together
+
+        If sensor is a cpu-side tensor and device is a cuda device the batched tensor will
+        be pinned to cuda memory.  If sensor is a cuda tensor, the batched tensor will also be
+        a cuda tensor
+        """
+        key = (
+            num_obs,
+            sensor_name,
+            tuple(sensor.size()),
+            sensor.type(),
+            sensor.device.type,
+            sensor.device.index,
+        )
+        if key in self._pool:
+            return self._pool[key]
+
+        cache = torch.empty(
+            num_obs, *sensor.size(), dtype=sensor.dtype, device=sensor.device
+        )
+        if (
+            device is not None
+            and device.type == "cuda"
+            and cache.device.type == "cpu"
+        ):
+            # Pytorch indexing is slow,
+            # so convert to numpy
+            cache = cache.pin_memory().numpy()
+
+        self._pool[key] = cache
+        return cache
 # My cumstomized batch_obs() function
 @torch.no_grad()
 @profiling_wrapper.RangeContext("batch_obs")
 def batch_obs(
     observations: List[DictTree],
     device: Optional[torch.device] = None,
+    cache: Optional[ObservationBatchingCache] = None,
+    processors: Dict[str, Any] = {},
 ) -> TensorDict:
     r"""Transpose a batch of observation dicts to a dict of batched
     observations.
@@ -93,6 +150,23 @@ def batch_obs(
         transposed dict of torch.Tensor of observations.
     """
     batch: DefaultDict[str, List] = defaultdict(list)
+    for i in range(len(observations)):
+        for sensor in observations[i].keys():
+            if sensor in processors:
+                if sensor=="rgb":
+                    observations[i][sensor] = processors[sensor](images=observations[i][sensor], return_tensors="pt").pixel_values.squeeze(
+                        0
+                    )
+                elif sensor=="depth":
+                    depth = observations[i][sensor].repeat(3, axis=2)  # extend to 3 channels
+                    observations[i][sensor] = processors[sensor](
+                        depth,
+                        do_resize=False,
+                        do_center_crop=False,
+                        do_rescale=False,
+                        do_convert_rgb=False,
+                        return_tensors="pt",
+                    ).pixel_values.squeeze(0)
 
     for obs in observations:
         for sensor in obs:
@@ -107,8 +181,8 @@ def batch_obs(
 
 
 # @torch.no_grad()
-# @profiling_wrapper.RangeContext("batch_obs_new")
-# def batch_obs_new(
+# @profiling_wrapper.RangeContext("batch_obs")
+# def batch_obs(
 #     observations: List[DictTree],
 #     device: Optional[torch.device] = None,
 #     cache: Optional[ObservationBatchingCache] = None,
