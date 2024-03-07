@@ -15,9 +15,9 @@ EVAL:
   EPISODE_COUNT: -1
 
 IL:
-  epochs: 25
-  batch_size: 2
-  lr: 1e-4
+  epochs: 15
+  batch_size: 1
+  lr: 5.0e-5
   use_iw: True
   RECOLLECT_TRAINER:
     gt_file:
@@ -27,7 +27,7 @@ IL:
     iterations: 1
     update_size: 10819
     p: 1.0
-    preload_lmdb_features: False
+    preload_lmdb_features: True
     lmdb_features_dir: data/trajectories_dirs/evoenc/trajectories.lmdb
 
 MODEL:

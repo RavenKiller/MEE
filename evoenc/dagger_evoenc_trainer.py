@@ -617,4 +617,3 @@ class DaggerTTrainer(BaseVLNCETrainer):
                         f"ckpt.{self.config.MODEL.policy_name}.{dagger_it * self.config.IL.epochs + epoch}.pth"  # to continue train
                     )
                 AuxLosses.deactivate()
-                logger.info(loss)

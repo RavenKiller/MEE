@@ -462,7 +462,7 @@ class EENet(Net):
                 inst_mask = observations.get("text_mask", None)
             if inst_mask is None:
                 inst_mask = (inst_observations!=PAD_IDX)
-
+            inst_observations = inst_observations.long()
             inst_seq_features = self.roberta_encoder(
                 input_ids=inst_observations, attention_mask=inst_mask
             ).last_hidden_state
@@ -480,6 +480,7 @@ class EENet(Net):
                 sub_mask = observations.get("sub_mask", None)
             if sub_mask is None:
                 sub_mask = (sub_observations!=SUB_PAD_IDX)
+            sub_observations = sub_observations.long()
             B, S, L = sub_observations.shape
             model_output = self.sbert_encoder(
                 input_ids=sub_observations.view((B * S, L)),
@@ -545,10 +546,11 @@ class EENet(Net):
         #################################################
         # Embeddings
         #################################################
-        rgb_seq_features = self.encode_rgb(observations)
-        depth_seq_features = self.encode_depth(observations)
-        inst_seq_features, inst_mask = self.encode_inst(observations)
-        sub_seq_features, sub_mask = self.encode_sub(observations)
+        with torch.no_grad():
+            rgb_seq_features = self.encode_rgb(observations)
+            depth_seq_features = self.encode_depth(observations)
+            inst_seq_features, inst_mask = self.encode_inst(observations)
+            sub_seq_features, sub_mask = self.encode_sub(observations)
         device = rgb_seq_features.device
 
         if "rgb_seq_features" not in observations:  # No dagger or eval
