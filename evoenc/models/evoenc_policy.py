@@ -39,6 +39,7 @@ SUB = 3
 EPS = 1e-12
 COEF_REC_INST = 1.0  # scale the reconstruction loss
 COEF_REC_SUB = 1.0  # scale the reconstruction loss
+DEFAULT_IGNORE = ["clip_encoder", "tac_encoder","bert_encoder","sbert_encoder"]
 
 
 def positionalencoding1d(length, d_model):
@@ -133,7 +134,7 @@ class EEPolicy(ILPolicy):
         self,
         state_dict: "OrderedDict[str, Tensor]",
         strict: bool = True,
-        excludes: list = ["clip_encoder", "tac_encoder","bert_encoder","sbert_encoder"],
+        excludes: list = DEFAULT_IGNORE,
     ):
         """Load state dict without pre-trained encoders"""
         state_dict_ret = self.state_dict()
@@ -148,7 +149,7 @@ class EEPolicy(ILPolicy):
                 logger.info(f"Not loading: {k}")
         return self.load_state_dict(state_dict_ret, strict=strict)
 
-    def state_dict_woenc(self, excludes: list = ["clip_encoder", "depth_encoder"]):
+    def state_dict_woenc(self, excludes: list = DEFAULT_IGNORE):
         """Save state dict without pre-trained encoders"""
         state_dict_ret = self.state_dict()
         keys = list(state_dict_ret.keys())
@@ -1259,10 +1260,7 @@ class EENet(Net):
         feature_mask_sub = feature_mask_sub[positive_idx]
         inst_rec = self.inst_reconstruction(inst_out[feature_mask_inst.logical_not()])
         sub_rec = self.sub_reconstruction(sub_out[feature_mask_sub.logical_not()])
-        loss_rec += (
-            F.mse_loss(inst_rec, self.inst_features[feature_mask_inst.logical_not()])
-            / COEF_REC_INST
-        )
+        loss_rec += F.mse_loss(inst_rec, self.inst_features[feature_mask_inst.logical_not()])
         loss_rec += F.mse_loss(
             sub_rec, self.sub_features[feature_mask_sub.logical_not()]
         )

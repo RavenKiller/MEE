@@ -4,12 +4,14 @@ import random
 import warnings
 from collections import defaultdict
 from datetime import datetime
-
+import time
 import lmdb
 import msgpack_numpy
 import numpy as np
 import torch
+import json
 import tqdm
+import jsonlines
 from transformers import (
     AutoProcessor,
     CLIPImageProcessor,
@@ -27,6 +29,7 @@ from habitat_baselines.common.obs_transformers import (
 from habitat_baselines.common.tensorboard_utils import TensorboardWriter
 # from habitat_baselines.utils.common import batch_obs
 
+from evoenc.common.env_utils import construct_envs_auto_reset_false
 from evoenc.common.aux_losses import AuxLosses
 from evoenc.common.base_il_trainer import BaseVLNCETrainer
 from evoenc.common.env_utils import construct_envs

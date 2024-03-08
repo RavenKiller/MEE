@@ -33,12 +33,12 @@ except ModuleNotFoundError:
     from habitat_baselines.rl.ddppo.algo.ddp_utils import (
         is_slurm_batch_job,
     )
-from habitat_baselines.utils.common import batch_obs
+# from habitat_baselines.utils.common import batch_obs
 
 from habitat_extensions.utils import generate_video, observations_to_image
 from evoenc.common.aux_losses import AuxLosses
 from evoenc.common.env_utils import construct_envs_auto_reset_false
-from evoenc.common.utils import extract_instruction_tokens
+from evoenc.common.utils import extract_instruction_tokens, batch_obs
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -329,7 +329,7 @@ class BaseVLNCETrainer(BaseILTrainer):
         observations = extract_instruction_tokens(
             observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
         )
-        batch = batch_obs(observations, self.device)
+        batch = batch_obs(observations, self.device, processors=self.processors)
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
         rnn_states = torch.zeros(
@@ -440,7 +440,7 @@ class BaseVLNCETrainer(BaseILTrainer):
                 observations,
                 self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
             )
-            batch = batch_obs(observations, self.device)
+            batch = batch_obs(observations, self.device, processors=self.processors)
             batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
             envs_to_pause = []
@@ -535,7 +535,7 @@ class BaseVLNCETrainer(BaseILTrainer):
         observations = extract_instruction_tokens(
             observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
         )
-        batch = batch_obs(observations, self.device)
+        batch = batch_obs(observations, self.device, processors=self.processors)
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
         rnn_states = torch.zeros(
@@ -606,7 +606,7 @@ class BaseVLNCETrainer(BaseILTrainer):
                     observations,
                     self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
                 )
-                batch = batch_obs(observations, self.device)
+                batch = batch_obs(observations, self.device, processors=self.processors)
                 batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
                 envs_to_pause = []
