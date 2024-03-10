@@ -285,7 +285,7 @@ class BaseVLNCETrainer(BaseILTrainer):
         config = self.config.clone()
         if self.config.EVAL.USE_CKPT_CONFIG:
             ckpt = self.load_checkpoint(checkpoint_path, map_location="cpu")
-            config = self._setup_eval_config(ckpt)
+            config = self._setup_eval_config(ckpt["config"])
 
         split = config.EVAL.SPLIT
 
@@ -309,9 +309,9 @@ class BaseVLNCETrainer(BaseILTrainer):
                 config.RESULTS_DIR,
                 f"stats_ckpt_{checkpoint_index}_{split}.json",
             )
-            if os.path.exists(fname):
-                logger.info("skipping -- evaluation exists.")
-                return
+            # if os.path.exists(fname):
+            #     logger.info("skipping -- evaluation exists.")
+            #     return
 
         envs = construct_envs_auto_reset_false(config, get_env_class(config.ENV_NAME))
         observation_space, action_space = self._get_spaces(config, envs=envs)
@@ -408,6 +408,13 @@ class BaseVLNCETrainer(BaseILTrainer):
                 stats_episodes[ep_id] = infos[i]
                 observations[i] = envs.reset_at(i)[0]
                 prev_actions[i] = torch.zeros(1, dtype=torch.long)
+                aggregated_stats = {}
+                num_episodes = len(stats_episodes)
+                for k in next(iter(stats_episodes.values())).keys():
+                    aggregated_stats[k] = (
+                        sum(v[k] for v in stats_episodes.values()) / num_episodes
+                    )
+                print(aggregated_stats)
                 if config.use_pbar:
                     pbar.update()
                 else:
