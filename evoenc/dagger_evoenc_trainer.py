@@ -273,6 +273,7 @@ class DaggerTTrainer(BaseVLNCETrainer):
         if torch.cuda.is_available():
             with torch.cuda.device(self.device):
                 torch.cuda.empty_cache()
+            
         self.policy.eval()
         self.policy.net.eval()
 

@@ -274,7 +274,7 @@ _C.PRETRAIN.STAGE2.batch_size = 32
 _C.PRETRAIN.STAGE2.loss_weights = [0.5, 0.5, 1.0]
 _C.PRETRAIN.STAGE2.folder = "/root/autodl-tmp/stage2"
 _C.PRETRAIN.STAGE2.positive_ratio = 0.4
-_C.PRETRAIN.STAGE1.save_steps = 100000
+_C.PRETRAIN.STAGE2.save_steps = 100000
 
 _C.PRETRAIN.STAGE3 = CN()
 _C.PRETRAIN.STAGE3.load_from_ckpt = False
@@ -285,9 +285,9 @@ _C.PRETRAIN.STAGE3.warmup = 1000
 _C.PRETRAIN.STAGE3.batch_size = 32
 _C.PRETRAIN.STAGE3.loss_weights = [0.4, 0.4, 1.0, 1.0]
 _C.PRETRAIN.STAGE3.folder = "/root/autodl-tmp/stage3"  # must contains data.mat
-_C.PRETRAIN.STAGE3.positive_ratio = 0.33
+_C.PRETRAIN.STAGE3.positive_ratio = 0.3
 _C.PRETRAIN.STAGE3.inner_positive_ratio = 0.5
-_C.PRETRAIN.STAGE1.save_steps = 100000
+_C.PRETRAIN.STAGE3.save_steps = 100000
 
 # ----------------------------------------------------------------------------
 # MODELING CONFIG

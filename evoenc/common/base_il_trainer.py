@@ -99,6 +99,7 @@ class BaseVLNCETrainer(BaseILTrainer):
             )
         if load_from_ckpt:
             ckpt_path = config.IL.ckpt_to_load
+            self.policy.state_dict_woenc()
             ckpt_dict = self.load_checkpoint(ckpt_path, map_location="cpu")
             self.policy.load_state_dict_woenc(ckpt_dict["state_dict"])
             if config.IL.is_requeue:

@@ -110,8 +110,9 @@ class Stage1Dataset(torch.utils.data.Dataset):
         super().__init__()
         self.config = config
         folder = Path(config.PRETRAIN.STAGE1.folder)
-        if os.path.exists(folder / "stage1_files{}.json".format(data_frac)):
-            with open(folder / "stage1_files{}.json".format(data_frac), "r") as f:
+        cache_file = folder / "stage1_{}_files{}.json".format(split, data_frac)
+        if os.path.exists(cache_file):
+            with open(cache_file, "r") as f:
                 files = json.load(f)
             self.rgb = files["rgb"]
             self.depth = files["depth"]
@@ -128,7 +129,7 @@ class Stage1Dataset(torch.utils.data.Dataset):
                 "text": [str(v) for v in self.text],
                 "sub": [str(v) for v in self.sub],
             }
-            with open(folder / "stage1_files{}.json".format(data_frac), "w") as f:
+            with open(cache_file, "w") as f:
                 json.dump(files, f)
             del files
         logger.info("Dataset size: ({}, {}, {}, {})".format(len(self.rgb), len(self.depth), len(self.text), len(self.sub)))
@@ -215,18 +216,19 @@ class Stage2Dataset(torch.utils.data.Dataset):
         config,
         split="train",
         positive_ratio=0.5,
-        data_frac=1.0,
+        data_frac=0.98,
     ):
         super().__init__()
         self.config = config
         folder = Path(config.PRETRAIN.STAGE2.folder)
-        if os.path.exists(folder / "stage2_files{}.json".format(data_frac)):
-            with open(folder / "stage2_files{}.json".format(data_frac), "r") as f:
+        cache_file = folder / "stage2_{}_files{}.json".format(split, data_frac)
+        if os.path.exists(cache_file):
+            with open(cache_file, "r") as f:
                 files = json.load(f)
-            self.rgb = files["rgb"][0:1000]
-            self.depth = files["depth"][0:1000]
-            self.text = files["text"][0:1000]
-            self.sub = files["sub"][0:1000]
+            self.rgb = files["rgb"]
+            self.depth = files["depth"]
+            self.text = files["text"]
+            self.sub = files["sub"]
         else:
             self.rgb = list(folder.glob(f"rgb-*/{split}/*.jpg"))
             self.depth = list(folder.glob(f"depth-*/{split}/*.png"))
@@ -238,7 +240,7 @@ class Stage2Dataset(torch.utils.data.Dataset):
                 "text": [str(v) for v in self.text],
                 "sub": [str(v) for v in self.sub],
             }
-            with open(folder / "stage2_files{}.json".format(data_frac), "w") as f:
+            with open(cache_file, "w") as f:
                 json.dump(files, f)
         # Solve the OOM problem
         self.rgb = np.array([str(v) for v in self.rgb]).astype(np.string_)
@@ -332,35 +334,38 @@ class Stage3Dataset(torch.utils.data.Dataset):
         positive_ratio=0.5,
         inner_positive_ratio=0.5,
         data_frac=1.0,
+        stride=1,
     ):
         super().__init__()
         self.config = config
         folder = Path(config.PRETRAIN.STAGE3.folder)
-        if os.path.exists(folder / "stage3_files{}.json".format(data_frac)):
-            with open(folder / "stage3_files{}.json".format(data_frac), "r") as f:
+        cache_file = folder / "stage3_{}_files{}.json".format(split, data_frac)
+        if os.path.exists(cache_file):
+            with open(cache_file, "r") as f:
                 files = json.load(f)
             self.rgb = files["rgb"]
             self.depth = files["depth"]
             self.text = files["text"]
             self.sub = files["sub"]
         else:
-            self.rgb = sorted([str(v) for v in folder.glob(f"rgb-*/{split}/*.jpg")])
-            self.depth = sorted([str(v) for v in folder.glob(f"depth-*/{split}/*.png")])
-            self.text = sorted([str(v) for v in folder.glob(f"text-*/{split}/*.txt")])
-            self.sub = sorted([str(v) for v in folder.glob(f"sub-*/{split}/*.txt")])
+            self.rgb = list(folder.glob(f"rgb-*/{split}/*.jpg"))
+            self.depth = list(folder.glob(f"depth-*/{split}/*.png"))
+            self.text = list(folder.glob(f"text-*/{split}/*.txt"))
+            self.sub = list(folder.glob(f"sub-*/{split}/*.txt"))
             files = {
-                "rgb": self.rgb,
-                "depth": self.depth,
-                "text": self.text,
-                "sub": self.sub,
+                "rgb": [str(v) for v in self.rgb],
+                "depth": [str(v) for v in self.depth],
+                "text": [str(v) for v in self.text],
+                "sub": [str(v) for v in self.sub],
             }
-            with open(folder / "stage3_files{}.json".format(data_frac), "w") as f:
+            with open(cache_file, "w") as f:
                 json.dump(files, f)
         # Solve the OOM problem
-        self.rgb = np.array(self.rgb).astype(np.string_)
-        self.depth = np.array(self.depth).astype(np.string_)
-        self.text = np.array(self.text).astype(np.string_)
-        self.sub = np.array(self.sub).astype(np.string_)
+        self.rgb = np.array([str(v) for v in self.rgb]).astype(np.string_)[::stride]
+        self.depth = np.array([str(v) for v in self.depth]).astype(np.string_)[::stride]
+        self.text = np.array([str(v) for v in self.text]).astype(np.string_)[::stride]
+        self.sub = np.array([str(v) for v in self.sub]).astype(np.string_)[::stride]
+
         self.data_frac = data_frac
         self.positive_ratio = positive_ratio
         self.inner_positive_ratio = inner_positive_ratio
@@ -451,8 +456,8 @@ class Stage3Dataset(torch.utils.data.Dataset):
             "depth": depth,
             "text": text,
             "sub": sub,
-            "inner_gt": torch.tensor((positive or inner_positive)),
-            "outer_gt": torch.tensor(positive),
+            "inner_gt": torch.tensor((positive or inner_positive), dtype=int),
+            "outer_gt": torch.tensor(positive, dtype=int),
         }
 
 
@@ -735,7 +740,7 @@ class PreTrainer(BaseVLNCETrainer):
                         "loss": "%2.4f" % (total_loss),
                         "rec": "%2.3f" % (losses["loss_rec"]),
                         "mea": "%2.3f" % (losses["loss_mean"]),
-                        "ali": "%2.3f" % (losses["loss_align"]),
+                        "inner": "%2.3f" % (losses["loss_inner"]),
                     }
                 )
                 for k in losses:
@@ -751,12 +756,85 @@ class PreTrainer(BaseVLNCETrainer):
                 f"ckpt.{self.config.MODEL.policy_name}.epoch{epoch}.pth"  # to continue train
             )
         writer.close()
-
     def _train_stage3(self):
-        dataset = Stage3Dataset(
+        dataset = Stage2Dataset(
             config=self.config,
             positive_ratio=self.stage_config.positive_ratio,
-            inner_positive_ratio=self.stage_config.inner_positive_ratio,
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=self.stage_config.batch_size,
+            shuffle=True,
+            num_workers=6,
+            collate_fn=stage_collate_fn,
+            # pin_memory=True
+        )
+        # self.policy, self.optimizer, dataloader, self.scheduler = accelerator.prepare(
+        #     self.policy, self.optimizer, dataloader, self.scheduler
+        # )
+        writer = SummaryWriter(
+            os.path.join(
+                self.config.TENSORBOARD_DIR,
+                self.config.MODEL.policy_name
+                + datetime.now().strftime("_%Y-%m-%d %H:%M:%S_")
+                + "stage2",
+            )
+        )
+        iter_num = 0
+        for epoch in tqdm.trange(self.stage_config.epochs, dynamic_ncols=True):
+            batch_bar = tqdm.tqdm(
+                dataloader,
+                total=len(dataloader.dataset) // self.stage_config.batch_size,
+                leave=False,
+                dynamic_ncols=True,
+            )
+            for batch in batch_bar:
+                if iter_num <= self.step_id:
+                    iter_num += 1
+                    continue
+                self.optimizer.zero_grad()
+                batch = {k: v.to(device=self.device) for k, v in batch.items()}
+                losses, _ = self.policy.net.stage3_forward(batch)
+                total_loss = 0
+                for i, k in enumerate(losses):
+                    w = self.stage_config.loss_weights[i]
+                    total_loss += w * (losses[k])
+                total_loss.backward()
+                # accelerator.backward(total_loss)
+                if self.max_grad_norm:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.policy.parameters(), self.max_grad_norm
+                    )
+                self.optimizer.step()
+                self.scheduler.step()
+
+                batch_bar.set_description(f"E {epoch}.")
+                batch_bar.set_postfix(
+                    {
+                        "loss": "%2.4f" % (total_loss),
+                        "rec": "%2.3f" % (losses["loss_rec"]),
+                        "mea": "%2.3f" % (losses["loss_mean"]),
+                        "inner": "%2.3f" % (losses["loss_inner"]),
+                    }
+                )
+                for k in losses:
+                    writer.add_scalar("loss/%s" % (k), losses[k], iter_num)
+                writer.add_scalar("loss/total", total_loss, iter_num)
+                if iter_num % self.stage_config.save_steps == 0:
+                    self.save_checkpoint(
+                        f"ckpt.{self.config.MODEL.policy_name}.step{iter_num}.pth",  # to continue train
+                        step_id=iter_num,
+                    )
+                iter_num += 1
+            self.save_checkpoint(
+                f"ckpt.{self.config.MODEL.policy_name}.epoch{epoch}.pth"  # to continue train
+            )
+        writer.close()
+    def _train_stage3_bug(self):
+        dataset = Stage2Dataset(
+            config=self.config,
+            positive_ratio=self.stage_config.positive_ratio,
+            # inner_positive_ratio=self.stage_config.inner_positive_ratio,
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
@@ -791,10 +869,10 @@ class PreTrainer(BaseVLNCETrainer):
                     w = self.stage_config.loss_weights[i]
                     total_loss += w * (losses[k])
                 total_loss.backward()
-                # if self.max_grad_norm:
-                #     torch.nn.utils.clip_grad_norm_(
-                #         self.policy.parameters(), self.max_grad_norm
-                #     )
+                if self.max_grad_norm:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.policy.parameters(), self.max_grad_norm
+                    )
                 self.optimizer.step()
                 self.scheduler.step()
 
@@ -805,7 +883,7 @@ class PreTrainer(BaseVLNCETrainer):
                         "rec": "%2.3f" % (losses["loss_rec"]),
                         "mea": "%2.3f" % (losses["loss_mean"]),
                         "inner": "%2.3f" % (losses["loss_inner"]),
-                        "outer": "%2.3f" % (losses["loss_outer"]),
+                        # "outer": "%2.3f" % (losses["loss_outer"]),
                     }
                 )
                 for k in losses:
@@ -886,7 +964,7 @@ class PreTrainer(BaseVLNCETrainer):
             train_mode=False
         )
         ckpt_dict = self.load_checkpoint(checkpoint_path, map_location="cpu")
-        self.policy.load_state_dict_woenc(ckpt_dict["state_dict"])
+        self.policy.load_state_dict_woenc(ckpt_dict["state_dict"], excludes=self.config.PRETRAIN.excludes)
 
         self.policy.eval()
         self.policy.net.eval()
@@ -909,9 +987,10 @@ class PreTrainer(BaseVLNCETrainer):
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=64,
+            batch_size=128,
             shuffle=True,
-            num_workers=4,
+            num_workers=6,
+            collate_fn=stage_collate_fn,
             # pin_memory=True
         )
         batch_bar = tqdm.tqdm(
@@ -959,9 +1038,10 @@ class PreTrainer(BaseVLNCETrainer):
         )
         dataloader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=64,
+            batch_size=128,
             shuffle=True,
-            num_workers=4,
+            num_workers=6,
+            collate_fn=stage_collate_fn,
             # pin_memory=True
         )
         batch_bar = tqdm.tqdm(
@@ -1027,8 +1107,8 @@ class PreTrainer(BaseVLNCETrainer):
     def _eval_stage3(self, checkpoint_index):
         dataset = Stage3Dataset(
             config=self.config,
-            split="val",
-            data_frac=0.1,
+            split="train",
+            data_frac=1.0,
             positive_ratio=self.stage_config.positive_ratio,
             inner_positive_ratio=self.stage_config.inner_positive_ratio,
         )
@@ -1037,6 +1117,7 @@ class PreTrainer(BaseVLNCETrainer):
             batch_size=self.stage_config.batch_size,
             shuffle=True,
             num_workers=6,
+            collate_fn=stage_collate_fn,
             # pin_memory=True
         )
         batch_bar = tqdm.tqdm(

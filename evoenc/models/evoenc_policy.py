@@ -39,7 +39,7 @@ SUB = 3
 EPS = 1e-12
 COEF_REC_INST = 1.0  # scale the reconstruction loss
 COEF_REC_SUB = 1.0  # scale the reconstruction loss
-DEFAULT_IGNORE = ["clip_encoder", "tac_encoder","bert_encoder","sbert_encoder"]
+DEFAULT_IGNORE = [".clip_encoder", ".tac_encoder",".sbert_encoder",".bert_encoder"]
 
 
 def positionalencoding1d(length, d_model):
@@ -942,7 +942,7 @@ class EENet(Net):
         #################################################
         loss_rec = 0
         loss_mean = 0
-        loss_align = 0
+        loss_inner = 0
         inner_gt = observations["inner_gt"]
         positive_idx = inner_gt.bool()
 
@@ -1045,7 +1045,7 @@ class EENet(Net):
         # inner alignment, all samples are involved
         rgb_depth_cls = torch.cat([rgb_cls, depth_cls], dim=1)
         inner_pre_v = self.inner_alignment_v(rgb_depth_cls)
-        loss_align += F.binary_cross_entropy(
+        loss_inner += F.binary_cross_entropy(
             torch.sigmoid(inner_pre_v.squeeze(1)), inner_gt.float()
         )
 
@@ -1114,14 +1114,14 @@ class EENet(Net):
         # inner alignment
         inst_sub_cls = torch.cat([inst_cls, sub_cls], dim=1)
         inner_pre_l = self.inner_alignment_l(inst_sub_cls)
-        loss_align += F.binary_cross_entropy(
+        loss_inner += F.binary_cross_entropy(
             torch.sigmoid(inner_pre_l.squeeze(1)), inner_gt.float()
         )
 
         return {
             "loss_rec": loss_rec if positive_idx.sum() > 0 else 0,
             "loss_mean": loss_mean if positive_idx.sum() > 0 else 0,
-            "loss_align": loss_align,
+            "loss_inner": loss_inner,
         }, {
             "inner_gt_v": inner_gt,
             "inner_pre_v": inner_pre_v,
@@ -1130,6 +1130,8 @@ class EENet(Net):
         }
 
     def stage3_forward(self, observations):
+        return self.stage2_forward(observations)
+
         #################################################
         # Losses initialization
         #################################################
@@ -1299,9 +1301,9 @@ class EENet(Net):
         rgb_depth_inst_sub_cls = torch.cat(
             [rgb_cls, depth_cls, inst_cls, sub_cls], dim=1
         )
-        align_pre = self.outer_alignment(rgb_depth_inst_sub_cls)
+        outer_pre = self.outer_alignment(rgb_depth_inst_sub_cls)
         loss_outer += F.binary_cross_entropy(
-            torch.sigmoid(align_pre.squeeze()), outer_gt.float()
+            torch.sigmoid(outer_pre.squeeze()), outer_gt.float()
         )
 
         return {
@@ -1315,7 +1317,7 @@ class EENet(Net):
             "inner_gt_l": inner_gt,
             "inner_pre_l": inner_pre_l,
             "outer_gt": outer_gt,
-            "outer_pre": align_pre,
+            "outer_pre": outer_pre,
         }
 
 

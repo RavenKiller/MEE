@@ -1,2 +1,7 @@
-python run.py --mode eval --config evoenc/config/evoenc.yaml EVAL_CKPT_PATH_DIR data/checkpoints/evoenc/ckpt.EEPolicy.14.pth EVAL.SPLIT val_seen
-python run.py --mode eval --config evoenc/config/evoenc.yaml EVAL_CKPT_PATH_DIR data/checkpoints/evoenc/ckpt.EEPolicy.14.pth EVAL.SPLIT val_unseen
+python run.py --mode eval --config evoenc/config/evoenc_s1.yaml EVAL_CKPT_PATH_DIR data/checkpoints/evoenc_s1/ckpt.EEPolicy.epoch0.pth RESULTS_DIR data/checkpoints/evoenc_s1/evals
+python run.py --mode eval --config evoenc/config/evoenc_s2.yaml EVAL_CKPT_PATH_DIR data/checkpoints/evoenc_s1/ckpt.EEPolicy.epoch0.pth RESULTS_DIR data/checkpoints/evoenc_s1/evals
+python run.py --mode eval --config evoenc/config/evoenc_s3.yaml EVAL_CKPT_PATH_DIR data/checkpoints/evoenc_s1/ckpt.EEPolicy.epoch0.pth TORCH_GPU_ID 0 RESULTS_DIR data/checkpoints/evoenc_s1/evals
+
+python run.py --mode eval --config evoenc/config/evoenc_s1.yaml EVAL_CKPT_PATH_DIR data/checkpoints/evoenc_s2/ckpt.EEPolicy.epoch0.pth RESULTS_DIR data/checkpoints/evoenc_s2/evals
+python run.py --mode eval --config evoenc/config/evoenc_s2.yaml EVAL_CKPT_PATH_DIR data/checkpoints/evoenc_s2/ckpt.EEPolicy.epoch0.pth  RESULTS_DIR data/checkpoints/evoenc_s2/evals
+python run.py --mode eval --config evoenc/config/evoenc_s3.yaml EVAL_CKPT_PATH_DIR data/checkpoints/evoenc_s2/ckpt.EEPolicy.epoch0.pth TORCH_GPU_ID 0  RESULTS_DIR data/checkpoints/evoenc_s2/evals
