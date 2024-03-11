@@ -251,7 +251,7 @@ _C.PRETRAIN.excludes = [
     "outer_alignment",
 ]
 _C.PRETRAIN.masked_feature_ratio = 0.15
-_C.PRETRAIN.max_grad_norm = 1.0  # cat or add
+_C.PRETRAIN.max_grad_norm = 0.5  # cat or add
 
 _C.PRETRAIN.STAGE1 = CN()
 _C.PRETRAIN.STAGE1.load_from_ckpt = False

@@ -1130,7 +1130,6 @@ class EENet(Net):
         }
 
     def stage3_forward(self, observations):
-        return self.stage2_forward(observations)
 
         #################################################
         # Losses initialization
@@ -1307,8 +1306,8 @@ class EENet(Net):
         )
 
         return {
-            "loss_rec": loss_rec if positive_idx.sum() > 0 else 0,
-            "loss_mean": loss_mean if positive_idx.sum() > 0 else 0,
+            "loss_rec": loss_rec if positive_idx.sum() > 0 else torch.tensor([0.0], device=device),
+            "loss_mean": loss_mean if positive_idx.sum() > 0 else torch.tensor([0.0], device=device),
             "loss_inner": loss_inner,
             "loss_outer": loss_outer,
         }, {
@@ -1321,6 +1320,134 @@ class EENet(Net):
         }
 
 
+    def feature_forward(self, observations):
+                #################################################
+        # Losses initialization
+        #################################################
+        loss_rec = 0
+        loss_mean = 0
+        loss_inner = 0
+        loss_outer = 0
+        inner_gt = observations["inner_gt"]
+        outer_gt = observations["outer_gt"]
+        positive_idx = outer_gt.bool()
+
+        #################################################
+        # Embeddings
+        #################################################
+        # Batch info
+        B = observations["rgb"].shape[0]
+        device = observations["rgb"].device
+
+        # Embedding
+        rgb_embedding_seq = self.encode_rgb(observations)
+        depth_embedding_seq = self.encode_depth(observations)
+        instruction_embedding, inst_mask = self.encode_inst(observations)
+        sub_instruction_embedding, sub_mask = self.encode_sub(observations)
+
+        # # Masked features
+        # # feature masks only catch the masked positions, without padding positions
+        # rgb_embedding_seq, feature_mask_rgb = self._feature_mask(rgb_seq_features)
+        # depth_embedding_seq, feature_mask_depth = self._feature_mask(depth_seq_features)
+        # instruction_embedding, feature_mask_inst = self._feature_mask(
+        #     inst_seq_features, pad_mask=inst_mask
+        # )
+        # sub_instruction_embedding, feature_mask_sub = self._feature_mask(
+        #     sub_seq_features, pad_mask=sub_mask
+        # )
+
+        # FC
+        instruction_embedding = self.inst_fc(instruction_embedding)
+        sub_instruction_embedding = self.sub_fc(sub_instruction_embedding)
+        rgb_embedding_seq = self.rgb_fc(rgb_embedding_seq)
+        depth_embedding_seq = self.depth_fc(depth_embedding_seq)
+
+        # Token
+        token_embeddings = self.token_embedding.expand(
+            (rgb_embedding_seq.shape[0], -1, -1)
+        )
+
+        #################################################
+        # All modalities
+        #################################################
+        ## Construct input sequence
+        # Concat
+        seq_embedding = torch.cat(
+            [
+                token_embeddings[:, 0:1, :],  # [RGB]
+                rgb_embedding_seq,
+                token_embeddings[:, 1:2, :],  # [DEP]
+                depth_embedding_seq,
+                token_embeddings[:, 2:3, :],  # [INS]
+                instruction_embedding,
+                token_embeddings[:, 3:4, :],  # [SUB]
+                sub_instruction_embedding,
+            ],
+            dim=1,
+        )
+
+        # Modality type ids
+        B, L_rgb, D_rgb = rgb_embedding_seq.shape
+        B, L_depth, D_depth = depth_embedding_seq.shape
+        B, L_inst, D_inst = instruction_embedding.shape
+        B, L_sub, D_sub = sub_instruction_embedding.shape
+
+        all_type_ids = torch.cat(
+            [
+                torch.ones((B, L_rgb + 1), dtype=int, device=device) * RGB,
+                torch.ones((B, L_depth + 1), dtype=int, device=device) * DEP,
+                torch.ones((B, L_inst + 1), dtype=int, device=device) * INS,
+                torch.ones((B, L_sub + 1), dtype=int, device=device) * SUB,
+            ],
+            dim=1,
+        )
+        # Attention mask
+        attn_mask = torch.ones(
+            (B, L_rgb + L_depth + L_inst + L_sub + 4), dtype=int, device=device
+        )
+        attn_mask[:, L_rgb + L_depth + 3 : L_rgb + L_depth + L_inst + 3] = inst_mask
+        attn_mask[:, L_rgb + L_depth + L_inst + 4 :] = sub_mask
+
+        # Transformer blocks
+        seq_out = self._t_forward(
+            seq_embedding, attention_mask=attn_mask, token_type_ids=all_type_ids
+        )
+
+        # Total feature, select
+        rgb_cls = seq_out[:, 0, :]
+        depth_cls = seq_out[:, L_rgb + 1, :]
+        inst_cls = seq_out[:, L_rgb + L_depth + 2, :]
+        sub_cls = seq_out[:, L_rgb + L_depth + L_inst + 3, :]
+        rgb_out = seq_out[
+            :,
+            1 : L_rgb + 1,
+        ]
+        depth_out = seq_out[:, L_rgb + 2 : L_rgb + L_depth + 2, :]
+        inst_out = seq_out[
+            :, L_rgb + L_depth + 3 : L_rgb + L_depth + L_inst + 3, :
+        ]
+        sub_out = seq_out[:, L_rgb + L_depth + L_inst + 4 :, :]
+
+
+        B = rgb_cls.shape[0]
+        inst_out_mean = []
+        sub_out_mean = []
+        for i in range(B):
+            inst_out_mean.append(inst_out[i][inst_mask[i]].mean(dim=0))
+            sub_out_mean.append(sub_out[i][sub_mask[i]].mean(dim=0))
+        inst_out_mean = torch.stack(inst_out_mean)
+        sub_out_mean = torch.stack(sub_out_mean)
+        return {  
+            "rgb_cls": rgb_cls,
+            "depth_cls": depth_cls,
+            "inst_cls": inst_cls,
+            "sub_cls": sub_cls,
+            "rgb_out": rgb_out.mean(dim=1),
+            "depth_out": depth_out.mean(dim=1),
+            "inst_out": inst_out_mean,
+            "sub_out": sub_out_mean,
+            "positive_idx": positive_idx,
+        }
 if __name__ == "__main__":
     device = torch.device("cuda:6")
     a = torch.randn((10, 77, 512))

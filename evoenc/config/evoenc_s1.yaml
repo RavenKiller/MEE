@@ -2,7 +2,7 @@ BASE_TASK_CONFIG_PATH: habitat_extensions/config/vlnce_t.yaml
 TRAINER_NAME: evopretrainer # dagger, or recollect_trainer
 DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
-TORCH_GPU_ID: 0
+TORCH_GPU_ID: 1
 NUM_ENVIRONMENTS: 6
 TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_s1
 CHECKPOINT_FOLDER: data/checkpoints/evoenc_s1
