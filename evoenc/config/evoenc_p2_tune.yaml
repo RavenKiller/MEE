@@ -1,9 +1,9 @@
 BASE_TASK_CONFIG_PATH: habitat_extensions/config/vlnce_t.yaml
-TRAINER_NAME: dagger_evoenc # dagger, or recollect_trainer
+TRAINER_NAME: real_trainer # dagger, or recollect_trainer
 DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
 TORCH_GPU_ID: 0
-NUM_ENVIRONMENTS: 6
+NUM_ENVIRONMENTS: 1
 TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p2_tune
 CHECKPOINT_FOLDER: data/checkpoints/evoenc_p2_tune
 EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p2_tune
@@ -13,6 +13,11 @@ EVAL:
   USE_CKPT_CONFIG: False
   SPLIT: val_unseen
   EPISODE_COUNT: -1
+
+INFERENCE:
+  CKPT_PATH: data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.37.pth
+  SPLIT: val_seen
+  FORMAT: r2r
 
 IL:
   epochs: 4
