@@ -93,7 +93,7 @@ class RealEnv():
 
     def get_current_obs(self, step_id):
         ep_id = self.episode_ids[self.ep_idx]
-        rgb = Image.open(os.path.join(self.dataset_folder, str(ep_id), "rgb", "{}.png".format(step_id)))
+        rgb = Image.open(os.path.join(self.dataset_folder, str(ep_id), "rgb", "{}.png".format(step_id))).convert("RGB")
         rgb = np.array(rgb)
 
         depth = Image.open(os.path.join(self.dataset_folder, str(ep_id), "depth", "{}.png".format(step_id)))
@@ -106,7 +106,7 @@ class RealEnv():
             inst = f.read()
         instruction = {
             "text": inst,
-            "tokens": clip.tokenize(inst, truncate=True, context_length=77).squeeze(0).numpy(),
+            "tokens": clip.tokenize(inst, truncate=True, context_length=77).squeeze(0).tolist(),
             "trajectory_id": ep_id,
         }
         
@@ -160,11 +160,25 @@ class RealEnv():
 
     def reset(self):
         self.ep_idx += 1
-        self.step_id = 0
+        self.step_id=0
         if self.ep_idx>=len(self.episode_ids):
             self.num_envs = 0
             return [self.old_obs]
         return [self.get_current_obs(self.step_id)]
+
+    def finish(self, episode_predictions):
+        for ep_id, ep_data in episode_predictions.items():
+            kys = ep_data[0].keys()
+            for k in kys:
+                data = []
+                for v in ep_data:
+                    data.append(v[k])
+                with open(os.path.join(self.dataset_folder, str(ep_id), "action", "action.json"),"r") as f:
+                    gt = json.loads(f.read())
+                assert len(data)==len(gt)
+                os.makedirs(os.path.join(self.dataset_folder, str(ep_id), k), exist_ok=True)
+                with open(os.path.join(self.dataset_folder, str(ep_id), k, k+".json"), "w") as f:
+                    f.write(json.dumps(data))
 
 
 def collate_fn(batch):
@@ -379,16 +393,92 @@ class RealTrainer(BaseVLNCETrainer):
         os.makedirs(self.lmdb_features_dir, exist_ok=True)
         if self.config.EVAL.SAVE_RESULTS:
             self._make_results_dir()
+    def _eval_checkpoint(
+        self,
+        checkpoint_path: str,
+        writer: TensorboardWriter,
+        checkpoint_index: int = 0,
+    ) -> None:
+        """Evaluates a single checkpoint.
 
-    def _update_dataset(self, data_it):
-        if torch.cuda.is_available():
-            with torch.cuda.device(self.device):
-                torch.cuda.empty_cache()
+        Args:
+            checkpoint_path: path of checkpoint
+            writer: tensorboard writer object
+            checkpoint_index: index of the current checkpoint
+        """
+        logger.info(f"checkpoint_path: {checkpoint_path}")
+
+        config = self.config.clone()
+        if self.config.EVAL.USE_CKPT_CONFIG:
+            ckpt = self.load_checkpoint(checkpoint_path, map_location="cpu")
+            config = self._setup_eval_config(ckpt["config"])
+
+        split = config.EVAL.SPLIT
+
+        config.defrost()
+        config.TASK_CONFIG.DATASET.SPLIT = split
+        config.TASK_CONFIG.DATASET.ROLES = ["guide"]
+        config.TASK_CONFIG.DATASET.LANGUAGES = config.EVAL.LANGUAGES
+        config.TASK_CONFIG.TASK.NDTW.SPLIT = split
+        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = False
+        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = -1
+        config.IL.ckpt_to_load = checkpoint_path
+        config.use_pbar = not is_slurm_batch_job()
+
+        if len(config.VIDEO_OPTION) > 0:
+            config.TASK_CONFIG.TASK.MEASUREMENTS.append("TOP_DOWN_MAP_VLNCE")
+
+        config.freeze()
+
+        if config.EVAL.SAVE_RESULTS:
+            fname = os.path.join(
+                config.RESULTS_DIR,
+                f"stats_ckpt_{checkpoint_index}_{split}.json",
+            )
+            # if os.path.exists(fname):
+            #     logger.info("skipping -- evaluation exists.")
+            #     return
+
+        envs = construct_envs_auto_reset_false(config, get_env_class(config.ENV_NAME))
+        real_env = RealEnv(config)
+
+        observation_space, action_space = self._get_spaces(config, envs=envs)
+
+        self._initialize_policy(
+            config,
+            load_from_ckpt=True,
+            observation_space=observation_space,
+            action_space=action_space,
+        )
         self.policy.eval()
         self.policy.net.eval()
 
-        envs = construct_envs(self.config, get_env_class(self.config.ENV_NAME))
-        expert_uuid = self.config.IL.DAGGER.expert_policy_sensor_uuid
+        observations = envs.reset()
+        observations = extract_instruction_tokens(
+            observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
+        )
+        batch = batch_obs(observations, self.device)
+        batch = apply_obs_transforms_batch(batch, self.obs_transforms)
+
+        real_episode_predictions = defaultdict(list)
+        real_observations = real_env.reset()
+        real_observations = extract_instruction_tokens(
+            real_observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
+        )
+        real_batch = batch_obs(real_observations, self.device)
+        real_batch = apply_obs_transforms_batch(real_batch, self.obs_transforms)
+        real_rnn_states = torch.zeros(
+            real_env.num_envs,
+            self.policy.net.num_recurrent_layers,
+            self.policy.net.hidden_size,
+            device=self.device,
+        )
+        real_prev_actions = torch.zeros(
+            real_env.num_envs, 1, device=self.device, dtype=torch.long
+        )
+        real_not_done_masks = torch.zeros(
+            real_env.num_envs, 1, dtype=torch.uint8, device=self.device
+        )
 
         rnn_states = torch.zeros(
             envs.num_envs,
@@ -397,395 +487,177 @@ class RealTrainer(BaseVLNCETrainer):
             device=self.device,
         )
         prev_actions = torch.zeros(
-            envs.num_envs,
-            1,
-            device=self.device,
-            dtype=torch.long,
+            envs.num_envs, 1, device=self.device, dtype=torch.long
         )
         not_done_masks = torch.zeros(
-            envs.num_envs, 1, dtype=torch.bool, device=self.device
+            envs.num_envs, 1, dtype=torch.uint8, device=self.device
         )
 
-        observations = envs.reset()
-        ## test part!!
-        # origin_observations = copy.deepcopy(observations)
-        observations = extract_instruction_tokens(
-            observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
+        stats_episodes = {}
+
+        rgb_frames = [[] for _ in range(envs.num_envs)]
+
+        num_eps = sum(envs.number_of_episodes)
+        if config.EVAL.EPISODE_COUNT > -1:
+            num_eps = min(config.EVAL.EPISODE_COUNT, num_eps)
+
+        pbar = tqdm.tqdm(total=num_eps) if config.use_pbar else None
+        log_str = (
+            f"[Ckpt: {checkpoint_index}]"
+            " [Episodes evaluated: {evaluated}/{total}]"
+            " [Time elapsed (s): {time}]"
         )
-        batch = batch_obs(observations, self.device)
-        batch = apply_obs_transforms_batch(batch, self.obs_transforms)
+        start_time = time.time()
 
-        episodes = [[] for _ in range(envs.num_envs)]
-        skips = [False for _ in range(envs.num_envs)]
-        # Populate dones with False initially
-        dones = [False for _ in range(envs.num_envs)]
+        while envs.num_envs > 0 and len(stats_episodes) < num_eps and real_env.num_envs>0:
+            current_episodes = envs.current_episodes()
 
-        # https://arxiv.org/pdf/1011.0686.pdf
-        # Theoretically, any beta function is fine so long as it converges to
-        # zero as data_it -> inf. The paper suggests starting with beta = 1 and
-        # exponential decay.
-        p = self.config.IL.DAGGER.p
-        if p > 1.0:
-            beta = p - 1.0
-        else:
-            # in Python 0.0 ** 0.0 == 1.0, but we want 0.0
-            beta = 0.0 if p == 0.0 else p ** data_it
-
-        ensure_unique_episodes = beta == 1.0
-
-        collected_eps = 0
-        ep_ids_collected = None
-        if ensure_unique_episodes:
-            ep_ids_collected = {
-                ep.episode_id for ep in envs.current_episodes()
-            }
-
-        with tqdm.tqdm(
-            total=self.config.IL.DAGGER.update_size, dynamic_ncols=True
-        ) as pbar, lmdb.open(
-            self.lmdb_features_dir,
-            map_size=int(self.config.IL.DAGGER.lmdb_map_size),
-        ) as lmdb_env, torch.no_grad():
-            pbar.set_description(
-                f"DA {data_it}."
-            )
-            start_id = lmdb_env.stat()["entries"]
-            txn = lmdb_env.begin(write=True)
-
-            while collected_eps < self.config.IL.DAGGER.update_size:
-                current_episodes = None
-                envs_to_pause = None
-                if ensure_unique_episodes:
-                    envs_to_pause = []
-                    current_episodes = envs.current_episodes()
-
-                for i in range(envs.num_envs):
-                    if dones[i] and not skips[i]:
-                        # Reset storage
-                        # self.policy.net.reset_storage(idx=i)
-                        
-                        ep = episodes[i]
-                        traj_obs = batch_obs(
-                            [step[0] for step in ep],
-                            device=torch.device("cpu"),
-                        )
-                        del traj_obs[expert_uuid]
-                        for k, v in traj_obs.items():
-                            traj_obs[k] = v.numpy()
-                            if self.config.IL.DAGGER.lmdb_fp16:
-                                traj_obs[k] = traj_obs[k].astype(np.float16)
-
-                        transposed_ep = [
-                            traj_obs,
-                            np.array([step[1] for step in ep], dtype=np.int64),
-                            np.array([step[2] for step in ep], dtype=np.int64),
-                        ]
-                        txn.put(
-                            str(start_id + collected_eps).encode(),
-                            msgpack_numpy.packb(
-                                transposed_ep, use_bin_type=True
-                            ),
-                        )
-
-                        pbar.update()
-                        collected_eps += 1
-
-                        if (
-                            collected_eps
-                            % self.config.IL.DAGGER.lmdb_commit_frequency
-                        ) == 0:
-                            txn.commit()
-                            txn = lmdb_env.begin(write=True)
-
-                        if ensure_unique_episodes:
-                            if (
-                                current_episodes[i].episode_id
-                                in ep_ids_collected
-                            ):
-                                envs_to_pause.append(i)
-                            else:
-                                ep_ids_collected.add(
-                                    current_episodes[i].episode_id
-                                )
-
-                    if dones[i]:
-                        episodes[i] = []
-
-                if ensure_unique_episodes:
-                    (
-                        envs,
-                        rnn_states,
-                        not_done_masks,
-                        prev_actions,
-                        batch,
-                        _,
-                    ) = self._pause_envs(
-                        envs_to_pause,
-                        envs,
-                        rnn_states,
-                        not_done_masks,
-                        prev_actions,
-                        batch,
-                    )
-                    if envs.num_envs == 0:
-                        break
-
+            with torch.no_grad():
                 actions, rnn_states = self.policy.act(
                     batch,
                     rnn_states,
                     prev_actions,
                     not_done_masks,
-                    deterministic=False,
+                    deterministic=not config.EVAL.SAMPLE,
                 )
-                actions = torch.where(
-                    torch.rand_like(actions, dtype=torch.float) < beta,
-                    batch[expert_uuid].long(),
-                    actions,
-                )
-                # actions = batch[expert_uuid].long()
-                rgb_features = self.policy.net.get_rgb_features()
-                rgb_seq_features = self.policy.net.get_rgb_seq_features()
-                depth_seq_features = self.policy.net.get_depth_seq_features()
-                sub_features = self.policy.net.get_sub_features()
-
-                for i in range(envs.num_envs):
-                    if rgb_features is not None:
-                        observations[i]["rgb_features"] = rgb_features[i]
-                        observations[i]["rgb_seq_features"] = rgb_seq_features[i]
-                        del observations[i]["rgb"]
-
-                    if depth_seq_features is not None:
-                        observations[i]["depth_seq_features"] = depth_seq_features[i]
-                        del observations[i]["depth"]
-
-                    if sub_features is not None:
-                        observations[i]["sub_features"] = sub_features[i]
-                        del observations[i]["sub_instruction"]
-
-                    episodes[i].append(
-                        (
-                            observations[i],
-                            prev_actions[i].item(),
-                            batch[expert_uuid][i].item(),
-                        )
-                    )
-
-                skips = batch[expert_uuid].long() == -1
-                actions = torch.where(
-                    skips, torch.zeros_like(actions), actions
-                )
-                skips = skips.squeeze(-1)  # .to(device="cpu")
                 prev_actions.copy_(actions)
 
-                outputs = envs.step([a[0].item() for a in actions])
-                # r = envs.render()
-                observations, _, dones, _ = [list(x) for x in zip(*outputs)]
-
-                ## test part!!
-                # origin_observations = copy.deepcopy(observations)
-                observations = extract_instruction_tokens(
-                    observations,
-                    self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
+                real_actions, real_rnn_states = self.policy.act(
+                    real_batch,
+                    real_rnn_states,
+                    real_prev_actions,
+                    real_not_done_masks,
+                    deterministic=not config.EVAL.SAMPLE,
                 )
-                batch = batch_obs(observations, self.device)
-                batch = apply_obs_transforms_batch(batch, self.obs_transforms)
+                real_prev_actions.copy_(real_actions)
 
-                not_done_masks = torch.tensor(
-                    [[0] if done else [1] for done in dones],
-                    dtype=torch.uint8,
+            outputs = envs.step([a[0].item() for a in actions])
+            observations, _, dones, infos = [list(x) for x in zip(*outputs)]
+
+            real_observations, _, real_dones, real_infos = real_env.step()
+            real_not_done_masks = torch.tensor(
+                [[0] if done else [1] for done in real_dones],
+                dtype=torch.uint8,
+                device=self.device,
+            )
+
+            not_done_masks = torch.tensor(
+                [[0] if done else [1] for done in dones],
+                dtype=torch.uint8,
+                device=self.device,
+            )
+
+            # reset envs and observations if necessary
+            for i in range(envs.num_envs):
+                if not dones[i]:
+                    continue
+
+                ep_id = current_episodes[i].episode_id
+                stats_episodes[ep_id] = infos[i]
+                observations[i] = envs.reset_at(i)[0]
+                prev_actions[i] = torch.zeros(1, dtype=torch.long)
+                aggregated_stats = {}
+                num_episodes = len(stats_episodes)
+                for k in next(iter(stats_episodes.values())).keys():
+                    aggregated_stats[k] = (
+                        sum(v[k] for v in stats_episodes.values()) / num_episodes
+                    )
+                print(aggregated_stats)
+                if config.use_pbar:
+                    pbar.update()
+                else:
+                    logger.info(
+                        log_str.format(
+                            evaluated=len(stats_episodes),
+                            total=num_eps,
+                            time=round(time.time() - start_time),
+                        )
+                    )
+            real_current_episodes = real_env.current_episodes()
+            for i in range(real_env.num_envs):
+                real_episode_predictions[real_current_episodes[i].episode_id].append(
+                    {"pred_action": actions[i][0].item()}
+                )
+                if not real_dones[i]:
+                    continue
+                real_observations[i] = real_env.reset()[i]
+                real_rnn_states = torch.zeros(
+                    real_env.num_envs,
+                    self.policy.net.num_recurrent_layers,
+                    self.policy.net.hidden_size,
                     device=self.device,
                 )
+                real_prev_actions = torch.zeros(
+                    real_env.num_envs, 1, device=self.device, dtype=torch.long
+                )
+                real_not_done_masks = torch.zeros(
+                    real_env.num_envs, 1, dtype=torch.uint8, device=self.device
+                )
 
-            txn.commit()
+
+
+            observations = extract_instruction_tokens(
+                observations,
+                self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
+            )
+            batch = batch_obs(observations, self.device)
+            batch = apply_obs_transforms_batch(batch, self.obs_transforms)
+
+
+            real_observations = extract_instruction_tokens(
+                real_observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
+            )
+            real_batch = batch_obs(real_observations, self.device)
+            real_batch = apply_obs_transforms_batch(real_batch, self.obs_transforms)
+
+            envs_to_pause = []
+            next_episodes = envs.current_episodes()
+
+            for i in range(envs.num_envs):
+                if next_episodes[i].episode_id in stats_episodes:
+                    envs_to_pause.append(i)
+
+            (
+                envs,
+                rnn_states,
+                not_done_masks,
+                prev_actions,
+                batch,
+                rgb_frames,
+            ) = self._pause_envs(
+                envs_to_pause,
+                envs,
+                rnn_states,
+                not_done_masks,
+                prev_actions,
+                batch,
+                rgb_frames,
+            )
 
         envs.close()
-        envs = None
-        self.policy.net.train()
-        self.policy.train()
+        real_env.finish(real_episode_predictions)
+        if config.use_pbar:
+            pbar.close()
 
-    def train(self) -> None:
-        """Main method for training DAgger."""
-        if self.config.IL.DAGGER.preload_lmdb_features:
-            try:
-                lmdb.open(self.lmdb_features_dir, readonly=True)
-            except lmdb.Error as err:
-                logger.error(
-                    "Cannot open database for teacher forcing preload."
-                )
-                raise err
-        else:
-            with lmdb.open(
-                self.lmdb_features_dir,
-                map_size=int(self.config.IL.DAGGER.lmdb_map_size),
-            ) as lmdb_env, lmdb_env.begin(write=True) as txn:
-                txn.drop(lmdb_env.open_db())
-
-        EPS = self.config.IL.DAGGER.expert_policy_sensor
-        if EPS not in self.config.TASK_CONFIG.TASK.SENSORS:
-            self.config.TASK_CONFIG.TASK.SENSORS.append(EPS)
-
-        self.config.defrost()
-
-        # if doing teacher forcing, don't switch the scene until it is complete
-        if self.config.IL.DAGGER.p == 1.0:
-            self.config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = (
-                -1
+        aggregated_stats = {}
+        num_episodes = len(stats_episodes)
+        for k in next(iter(stats_episodes.values())).keys():
+            aggregated_stats[k] = (
+                sum(v[k] for v in stats_episodes.values()) / num_episodes
             )
-        self.config.freeze()
 
-        observation_space, action_space = self._get_spaces(self.config)
+        if config.EVAL.SAVE_RESULTS:
+            with open(fname, "w") as f:
+                json.dump(aggregated_stats, f, indent=4)
 
-        self._initialize_policy(
-            self.config,
-            self.config.IL.load_from_ckpt,
-            observation_space=observation_space,
-            action_space=action_space,
-        )
-
-        with TensorboardWriter(
-            os.path.join(
-                self.config.TENSORBOARD_DIR,
-                self.config.MODEL.policy_name
-                + "_"
-                + datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            ),
-            flush_secs=self.flush_secs,
-            purge_step=0,
-        ) as writer:
-            for dagger_it in range(self.config.IL.DAGGER.iterations):
-                step_id = 0
-                if not self.config.IL.DAGGER.preload_lmdb_features:
-                    self._update_dataset(
-                        dagger_it + (1 if self.config.IL.load_from_ckpt and not self.config.IL.load_from_pretrain else 0)
-                    )
-
-                if torch.cuda.is_available():
-                    with torch.cuda.device(self.device):
-                        torch.cuda.empty_cache()
-                gc.collect()
-
-                dataset = IWTrajectoryDataset(
-                    self.lmdb_features_dir,
-                    self.config.IL.use_iw,
-                    inflection_weight_coef=self.config.IL.inflection_weight_coef,
-                    lmdb_map_size=self.config.IL.DAGGER.lmdb_map_size,
-                    batch_size=self.config.IL.batch_size,
-                )
-                diter = torch.utils.data.DataLoader(
-                    dataset,
-                    batch_size=self.config.IL.batch_size,
-                    shuffle=False,
-                    collate_fn=collate_fn,
-                    pin_memory=False,
-                    drop_last=True,  # drop last batch if smaller
-                    num_workers=3,
-                )
-
-                AuxLosses.activate()
-                for epoch in tqdm.trange(
-                    self.config.IL.epochs, dynamic_ncols=True
-                ):
-                    batch_bar = tqdm.tqdm(
-                        diter,
-                        total=dataset.length // dataset.batch_size,
-                        leave=False,
-                        dynamic_ncols=True,
-                    )
-                    for batch in batch_bar:
-                        (
-                            observations_batch,
-                            prev_actions_batch,
-                            not_done_masks,
-                            corrected_actions_batch,
-                            weights_batch,
-                        ) = batch
-
-                        observations_batch = {
-                            k: v.to(
-                                device=self.device,
-                                dtype=torch.float32,
-                                non_blocking=True,
-                            )
-                            for k, v in observations_batch.items()
-                        }
-
-                        loss, action_loss, aux_loss = self._update_agent(
-                            observations_batch,
-                            prev_actions_batch.to(
-                                device=self.device, non_blocking=True
-                            ),
-                            not_done_masks.to(
-                                device=self.device, non_blocking=True
-                            ),
-                            corrected_actions_batch.to(
-                                device=self.device, non_blocking=True
-                            ),
-                            weights_batch.to(
-                                device=self.device, non_blocking=True
-                            ),
-                        )
-
-                        # logger.info(f"train_loss: {loss}")
-                        # logger.info(f"train_action_loss: {action_loss}")
-                        # logger.info(f"train_aux_loss: {aux_loss}")
-                        # logger.info(f"Batches processed: {step_id}.")
-                        # logger.info(
-                        #     f"On DAgger iter {dagger_it}, Epoch {epoch}."
-                        # )
-                        # batch_bar.set_description(f"DAgger {dagger_it}, Epoch {epoch}.")
-                        # batch_bar.set_postfix({"train_loss":"%2.4f"%(loss), "aux_loss":"%2.4f"%(aux_loss)})
-                        batch_bar.set_description(
-                            f"DA {dagger_it}, E {epoch}."
-                        )
-                        batch_bar.set_postfix(
-                            {
-                                "loss": "%2.4f" % (loss),
-                            }
-                        )
-                        writer.add_scalar(
-                            f"train_loss_iter_{dagger_it}", loss, step_id
-                        )
-                        writer.add_scalar(
-                            f"train_action_loss_iter_{dagger_it}",
-                            action_loss,
-                            step_id,
-                        )
-                        # writer.add_scalar(
-                        #     f"train_aux_loss_iter_{dagger_it}",
-                        #     aux_loss,
-                        #     step_id,
-                        # )
-                        aux_mask = weights_batch.to(
-                            device=self.device, non_blocking=True
-                        )
-                        aux_mask = (aux_mask > 0).view(-1)
-                        # if self.config.MODEL.PEAK_ATTENTION.use:
-                        #     pal = torch.masked_select(
-                        #         AuxLosses.get_loss("peak_attention"), aux_mask
-                        #     ).mean()
-                        #     writer.add_scalar(
-                        #         f"train_peak_loss_iter_{dagger_it}",
-                        #         pal,
-                        #         step_id,
-                        #     )
-                        # if self.config.MODEL.PROGRESS_MONITOR.use:
-                        #     pal = torch.masked_select(
-                        #         AuxLosses.get_loss("progress_monitor"),
-                        #         aux_mask,
-                        #     ).mean()
-                        #     writer.add_scalar(
-                        #         f"train_progress_loss_iter_{dagger_it}",
-                        #         pal,
-                        #         step_id,
-                        #     )
-                        step_id += 1  # noqa: SIM113
-
-                    self.save_checkpoint(
-                        f"ckpt.{self.config.MODEL.policy_name}.{dagger_it * self.config.IL.epochs + epoch}.pth"  # to continue train
-                    )
-                AuxLosses.deactivate()
-                logger.info(loss)
-    
+        logger.info(f"Episodes evaluated: {num_episodes}")
+        checkpoint_num = checkpoint_index + 1
+        for k, v in aggregated_stats.items():
+            logger.info(f"{k}: {v:.6f}")
+            writer.add_scalar(f"eval_{split}_{k}", v, checkpoint_num)
+        if len(config.VIDEO_OPTION) > 0:
+            with open(os.path.join(config.VIDEO_DIR, "episode_success.json", "w")) as f:
+                f.write(json.dumps(episode_success))
     def inference(self) -> None:
         """Runs inference on a checkpoint and saves a predictions file."""
 
@@ -912,6 +784,7 @@ class RealTrainer(BaseVLNCETrainer):
 
 
         envs.close()
+        real_env.finish(episode_predictions)
 
         with open(config.INFERENCE.PREDICTIONS_FILE, "w") as f:
             json.dump(episode_predictions, f, indent=2)
