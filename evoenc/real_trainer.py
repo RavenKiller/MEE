@@ -581,18 +581,18 @@ class RealTrainer(BaseVLNCETrainer):
                 if not real_dones[i]:
                     continue
                 real_observations[i] = real_env.reset()[i]
-                real_rnn_states = torch.zeros(
-                    real_env.num_envs,
-                    self.policy.net.num_recurrent_layers,
-                    self.policy.net.hidden_size,
-                    device=self.device,
-                )
+                # real_rnn_states = torch.zeros(
+                #     real_env.num_envs,
+                #     self.policy.net.num_recurrent_layers,
+                #     self.policy.net.hidden_size,
+                #     device=self.device,
+                # )
                 real_prev_actions = torch.zeros(
                     real_env.num_envs, 1, device=self.device, dtype=torch.long
                 )
-                real_not_done_masks = torch.zeros(
-                    real_env.num_envs, 1, dtype=torch.uint8, device=self.device
-                )
+                # real_not_done_masks = torch.zeros(
+                #     real_env.num_envs, 1, dtype=torch.uint8, device=self.device
+                # )
 
 
 
@@ -655,9 +655,6 @@ class RealTrainer(BaseVLNCETrainer):
         for k, v in aggregated_stats.items():
             logger.info(f"{k}: {v:.6f}")
             writer.add_scalar(f"eval_{split}_{k}", v, checkpoint_num)
-        if len(config.VIDEO_OPTION) > 0:
-            with open(os.path.join(config.VIDEO_DIR, "episode_success.json", "w")) as f:
-                f.write(json.dumps(episode_success))
     def inference(self) -> None:
         """Runs inference on a checkpoint and saves a predictions file."""
 
