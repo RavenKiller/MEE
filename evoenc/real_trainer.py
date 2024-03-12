@@ -86,14 +86,14 @@ class RealEnv():
         self.ep_idx = -1
         self.step_id = 0
         self.dataset_folder = "/root/autodl-tmp/vlntj-ce"
-        self.episode_ids = [int(v) for v in os.listdir(self.dataset_folder)]
+        self.episode_ids = [int(v) for v in os.listdir(self.dataset_folder) if v.isnumeric()]
 
         self.num_envs = 1
         self.old_obs = None
 
     def get_current_obs(self, step_id):
         ep_id = self.episode_ids[self.ep_idx]
-        rgb = Image.open(os.path.join(self.dataset_folder, str(ep_id), "rgb", "{}.jpg".format(step_id)))
+        rgb = Image.open(os.path.join(self.dataset_folder, str(ep_id), "rgb", "{}.png".format(step_id))).convert("RGB")
         rgb = np.array(rgb)
 
         depth = Image.open(os.path.join(self.dataset_folder, str(ep_id), "depth", "{}.png".format(step_id)))
@@ -146,7 +146,7 @@ class RealEnv():
     def step(self):
         self.step_id += 1
         ep_id = self.episode_ids[self.ep_idx]
-        if not os.path.exists(os.path.join(self.dataset_folder, str(ep_id), "rgb", "{}.jpg".format(self.step_id))): # next episode
+        if not os.path.exists(os.path.join(self.dataset_folder, str(ep_id), "rgb", "{}.png".format(self.step_id))): # next episode
             obs = self.get_current_obs(self.step_id-1)
             mask = 0.0
             done = True
@@ -160,10 +160,25 @@ class RealEnv():
 
     def reset(self):
         self.ep_idx += 1
+        self.step_id=0
         if self.ep_idx>=len(self.episode_ids):
             self.num_envs = 0
             return [self.old_obs]
         return [self.get_current_obs(self.step_id)]
+
+    def finish(self, episode_predictions):
+        for ep_id, ep_data in episode_predictions.items():
+            kys = ep_data[0].keys()
+            for k in kys:
+                data = []
+                for v in ep_data:
+                    data.append(v[k])
+                with open(os.path.join(self.dataset_folder, str(ep_id), "action", "action.json"),"r") as f:
+                    gt = json.loads(f.read())
+                assert len(data)==len(gt)
+                os.makedirs(os.path.join(self.dataset_folder, str(ep_id), k), exist_ok=True)
+                with open(os.path.join(self.dataset_folder, str(ep_id), k, k+".json"), "w") as f:
+                    f.write(json.dumps(data))
 
 
 def collate_fn(batch):
@@ -911,6 +926,7 @@ class RealTrainer(BaseVLNCETrainer):
 
 
         envs.close()
+        real_env.finish(episode_predictions)
 
         with open(config.INFERENCE.PREDICTIONS_FILE, "w") as f:
             json.dump(episode_predictions, f, indent=2)
