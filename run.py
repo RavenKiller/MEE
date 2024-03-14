@@ -65,6 +65,7 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     logger.setLevel(logging.DEBUG)
 
     seed = config.TASK_CONFIG.SEED
+    # seed = random.randint(0, 10000)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

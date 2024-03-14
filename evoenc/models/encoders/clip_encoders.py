@@ -9,7 +9,7 @@ from evoenc.models.encoders.resnet_encoders import ResNetEncoder
 from torch import Tensor
 
 from evoenc.common.utils import single_frame_box_shape
-from transformers import DistilBertModel, DistilBertTokenizer, AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer
 
 
 class CLIPEncoder(nn.Module):

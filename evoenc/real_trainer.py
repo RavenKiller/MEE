@@ -75,18 +75,27 @@ class ObservationsDict(dict):
             self[k] = v.pin_memory()
 
         return self
-
+TRAIN_NUM = 6
+TRAIN_ITER = TRAIN_NUM*6
 @dataclass
 class EpisodeCls:
     episode_id: int=0
+    episode_len: int=0
+    progress: float=0.0
 
 class RealEnv():
-    def __init__(self, config):
+    def __init__(self, config, mode="eval", train_num=1, train_iter=1):
         self.config = config
         self.ep_idx = -1
         self.step_id = 0
         self.dataset_folder = "/root/autodl-tmp/vlntj-ce"
         self.episode_ids = [int(v) for v in os.listdir(self.dataset_folder) if v.isnumeric()]
+        self.mode = mode
+        if mode=="train":
+            np.random.shuffle(self.episode_ids)
+        self.train_num = train_num
+        self.train_iter = train_iter
+        self.current_iter = 0
 
         self.num_envs = 1
         self.old_obs = None
@@ -142,7 +151,16 @@ class RealEnv():
     def count_episodes(self):
         return [len(self.episode_ids)]
     def current_episodes(self):
-        return [EpisodeCls(episode_id=self.episode_ids[self.ep_idx])]
+        ep_id = self.episode_ids[self.ep_idx]
+        with open(os.path.join(self.dataset_folder, str(ep_id), "action", "action.json"), "r") as f:
+            ep_action = json.loads(f.read())
+        return [EpisodeCls(episode_id=self.episode_ids[self.ep_idx], episode_len=len(ep_action), progress=self.step_id/len(ep_action))]
+    def get_prev_action(self):
+        ep_id = self.episode_ids[self.ep_idx]
+        with open(os.path.join(self.dataset_folder, str(ep_id), "action", "action.json"), "r") as f:
+            ep_action = json.loads(f.read())
+        return torch.tensor([[ep_action[self.step_id]]], dtype=int)
+
     def step(self):
         self.step_id += 1
         ep_id = self.episode_ids[self.ep_idx]
@@ -161,23 +179,38 @@ class RealEnv():
     def reset(self):
         self.ep_idx += 1
         self.step_id=0
-        if self.ep_idx>=len(self.episode_ids):
-            self.num_envs = 0
-            return [self.old_obs]
-        return [self.get_current_obs(self.step_id)]
+        if self.mode=="train":
+            if self.current_iter>=self.train_iter: # and all
+                self.num_envs = 0
+                return [self.old_obs]
+            else:
+                if self.ep_idx>=self.train_num:
+                    self.ep_idx = 0
+                self.current_iter+=1
+            return [self.get_current_obs(self.step_id)]
+        else:
+            if self.ep_idx>=len(self.episode_ids):
+                self.num_envs = 0
+                return [self.old_obs]
+            return [self.get_current_obs(self.step_id)]
 
     def finish(self, episode_predictions):
+        if self.mode=="train":
+            return
+        new_folder = self.dataset_folder+str(self.train_num)+"+"+str(self.train_iter)
+        os.system(f"rm -r {new_folder}")
+        os.system(f"cp -r {self.dataset_folder} {new_folder}")
         for ep_id, ep_data in episode_predictions.items():
             kys = ep_data[0].keys()
             for k in kys:
                 data = []
                 for v in ep_data:
                     data.append(v[k])
-                with open(os.path.join(self.dataset_folder, str(ep_id), "action", "action.json"),"r") as f:
+                with open(os.path.join(new_folder, str(ep_id), "action", "action.json"),"r") as f:
                     gt = json.loads(f.read())
                 assert len(data)==len(gt)
-                os.makedirs(os.path.join(self.dataset_folder, str(ep_id), k), exist_ok=True)
-                with open(os.path.join(self.dataset_folder, str(ep_id), k, k+".json"), "w") as f:
+                os.makedirs(os.path.join(new_folder, str(ep_id), k), exist_ok=True)
+                with open(os.path.join(new_folder, str(ep_id), k, k+".json"), "w") as f:
                     f.write(json.dumps(data))
 
 
@@ -270,116 +303,6 @@ def _block_shuffle(lst, block_size):
     return [ele for block in blocks for ele in block]
 
 
-class IWTrajectoryDataset(torch.utils.data.IterableDataset):
-    def __init__(
-        self,
-        lmdb_features_dir,
-        use_iw,
-        inflection_weight_coef=1.0,
-        lmdb_map_size=1e9,
-        batch_size=1,
-    ):
-        super().__init__()
-        self.lmdb_features_dir = lmdb_features_dir
-        self.lmdb_map_size = lmdb_map_size
-        self.preload_size = batch_size * 20
-        self._preload = []
-        self.batch_size = batch_size
-
-        if use_iw:
-            self.inflec_weights = torch.tensor([1.0, inflection_weight_coef])
-        else:
-            self.inflec_weights = torch.tensor([1.0, 1.0])
-
-        with lmdb.open(
-            self.lmdb_features_dir,
-            map_size=int(self.lmdb_map_size),
-            readonly=True,
-            lock=False,
-        ) as lmdb_env:
-            self.length = lmdb_env.stat()["entries"]
-
-    def _load_next(self):
-        if len(self._preload) == 0:
-            if len(self.load_ordering) == 0:
-                raise StopIteration
-
-            new_preload = []
-            lengths = []
-            with lmdb.open(
-                self.lmdb_features_dir,
-                map_size=int(self.lmdb_map_size),
-                readonly=True,
-                lock=False,
-            ) as lmdb_env, lmdb_env.begin(buffers=True) as txn:
-                for _ in range(self.preload_size):
-                    if len(self.load_ordering) == 0:
-                        break
-
-                    new_preload.append(
-                        msgpack_numpy.unpackb(
-                            txn.get(str(self.load_ordering.pop()).encode()),
-                            raw=False,
-                        )
-                    )
-                    # !! true trajectory length
-                    lengths.append(len(new_preload[-1][2]))
-
-            sort_priority = list(range(len(lengths)))
-            random.shuffle(sort_priority)
-
-            sorted_ordering = list(range(len(lengths)))
-            sorted_ordering.sort(key=lambda k: (lengths[k], sort_priority[k]))
-
-            for idx in _block_shuffle(sorted_ordering, self.batch_size):
-                self._preload.append(new_preload[idx])
-
-        return self._preload.pop()
-
-    def __next__(self):
-        obs, prev_actions, oracle_actions = self._load_next()
-
-        for k, v in obs.items():
-            obs[k] = torch.from_numpy(np.copy(v))
-
-        prev_actions = torch.from_numpy(np.copy(prev_actions))
-        oracle_actions = torch.from_numpy(np.copy(oracle_actions))
-
-        inflections = torch.cat(
-            [
-                torch.tensor([1], dtype=torch.long),
-                (oracle_actions[1:] != oracle_actions[:-1]).long(),
-            ]
-        )
-
-        return (
-            obs,
-            prev_actions,
-            oracle_actions,
-            self.inflec_weights[inflections],
-        )
-
-    def __iter__(self):
-        worker_info = torch.utils.data.get_worker_info()
-        if worker_info is None:
-            start = 0
-            end = self.length
-        else:
-            per_worker = int(np.ceil(self.length / worker_info.num_workers))
-
-            start = per_worker * worker_info.id
-            end = min(start + per_worker, self.length)
-
-        # Reverse so we can use .pop()
-        self.load_ordering = list(
-            reversed(
-                _block_shuffle(list(range(start, end)), self.preload_size)
-            )
-        )
-
-        return self
-
-
 @baseline_registry.register_trainer(name="real_trainer")
 class RealTrainer(BaseVLNCETrainer):
     def __init__(self, config=None):
@@ -393,6 +316,189 @@ class RealTrainer(BaseVLNCETrainer):
         os.makedirs(self.lmdb_features_dir, exist_ok=True)
         if self.config.EVAL.SAVE_RESULTS:
             self._make_results_dir()
+    def train(
+        self
+    ) -> None:
+        """Evaluates a single checkpoint.
+
+        Args:
+            checkpoint_path: path of checkpoint
+            writer: tensorboard writer object
+            checkpoint_index: index of the current checkpoint
+        """
+        checkpoint_index = 0
+        config = self.config.clone()
+        checkpoint_path = "data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.32.pth"
+        # if self.config.EVAL.USE_CKPT_CONFIG:
+        #     ckpt = self.load_checkpoint(checkpoint_path, map_location="cpu")
+        #     config = self._setup_eval_config(ckpt["config"])
+
+        split = config.EVAL.SPLIT
+
+        config.defrost()
+        config.TASK_CONFIG.DATASET.SPLIT = split
+        config.TASK_CONFIG.DATASET.ROLES = ["guide"]
+        config.TASK_CONFIG.DATASET.LANGUAGES = config.EVAL.LANGUAGES
+        config.TASK_CONFIG.TASK.NDTW.SPLIT = split
+        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = False
+        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = -1
+        config.IL.ckpt_to_load = checkpoint_path
+        config.use_pbar = not is_slurm_batch_job()
+
+        if len(config.VIDEO_OPTION) > 0:
+            config.TASK_CONFIG.TASK.MEASUREMENTS.append("TOP_DOWN_MAP_VLNCE")
+
+        config.freeze()
+
+        # if config.EVAL.SAVE_RESULTS:
+        #     fname = os.path.join(
+        #         config.RESULTS_DIR,
+        #         f"stats_ckpt_{checkpoint_index}_{split}.json",
+        #     )
+            # if os.path.exists(fname):
+            #     logger.info("skipping -- evaluation exists.")
+            #     return
+
+        envs = construct_envs_auto_reset_false(config, get_env_class(config.ENV_NAME))
+        real_env = RealEnv(config, mode="train", train_num=TRAIN_NUM, train_iter=TRAIN_ITER)
+
+        observation_space, action_space = self._get_spaces(config, envs=envs)
+
+        self._initialize_policy(
+            config,
+            load_from_ckpt=True,
+            observation_space=observation_space,
+            action_space=action_space,
+        )
+        self.policy.train()
+        self.policy.net.train()
+        for param in self.policy.net.parameters():
+            param.requires_grad_(False)
+        for m in [self.policy.net.action_rgb_decoder,self.policy.net.action_depth_decoder,self.policy.net.action_inst_decoder,self.policy.net.action_sub_decoder, self.policy.net.progress_monitor]:
+            for name, param in m.named_parameters():
+                param.requires_grad_(True)
+                print(name)
+
+        real_episode_predictions = defaultdict(list)
+        real_observations = real_env.reset()
+        real_observations = extract_instruction_tokens(
+            real_observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
+        )
+        real_batch = batch_obs(real_observations, self.device)
+        real_batch = apply_obs_transforms_batch(real_batch, self.obs_transforms)
+        real_rnn_states = torch.zeros(
+            real_env.num_envs,
+            self.policy.net.num_recurrent_layers,
+            self.policy.net.hidden_size,
+            device=self.device,
+        )
+        real_prev_actions = torch.zeros(
+            real_env.num_envs, 1, device=self.device, dtype=torch.long
+        )
+        real_not_done_masks = torch.zeros(
+            real_env.num_envs, 1, dtype=torch.uint8, device=self.device
+        )
+
+        stats_episodes = {}
+
+
+        num_eps = real_env.train_iter
+        if config.EVAL.EPISODE_COUNT > -1:
+            num_eps = min(config.EVAL.EPISODE_COUNT, num_eps)
+
+        pbar = tqdm.tqdm(total=num_eps) if config.use_pbar else None
+
+        AuxLosses.activate()
+        while len(stats_episodes) < num_eps and real_env.num_envs>0:
+
+            gt_action = real_env.get_prev_action().to(self.device)
+            ############################################### loss
+            real_current_episodes = real_env.current_episodes()[0]
+            real_batch["progress"] = torch.tensor([[real_current_episodes.progress]]).to(self.device)
+            AuxLosses.clear()
+            distribution = self.policy.build_distribution(
+                real_batch, real_rnn_states, real_prev_actions, real_not_done_masks
+            )
+
+            logits = distribution.logits
+
+
+            iw_weight = 1.0 / real_current_episodes.episode_len
+            if gt_action[0,0].item()!=real_prev_actions[0,0].item():
+                iw_weight *= self.config.IL.inflection_weight_coef
+            action_loss = iw_weight*F.cross_entropy(
+                logits, gt_action.squeeze(0)
+            )
+            
+            aux_loss = AuxLosses.reduce(torch.tensor([[True]]).to(self.device))
+
+            loss = action_loss + aux_loss
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                self.policy.parameters(), self.max_grad_norm
+            )
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            self.save_checkpoint(
+                f"ckpt.{self.config.MODEL.policy_name}.realtune.trainum{real_env.train_num}.trainiter{real_env.train_iter}.pth"  # to continue train
+            )
+
+            # if self.config.IL.use_iw:
+            #     weights[weights>1.0] = self.config.IL.inflection_weight_coef
+            # action_loss = ((weights * action_loss).sum(0) / weights.sum(0)).mean()
+            #########################################################
+            with torch.no_grad():
+                AuxLosses.clear()
+                real_actions, real_rnn_states = self.policy.act(
+                    real_batch,
+                    real_rnn_states,
+                    real_prev_actions,
+                    real_not_done_masks,
+                    deterministic=True,
+                )
+            real_prev_actions.copy_(gt_action) 
+
+            real_observations, _, real_dones, real_infos = real_env.step()
+            real_not_done_masks = torch.tensor(
+                [[0] if done else [1] for done in real_dones],
+                dtype=torch.uint8,
+                device=self.device,
+            )
+
+            
+            real_current_episodes = real_env.current_episodes()
+            for i in range(real_env.num_envs):
+                real_episode_predictions[real_current_episodes[i].episode_id].append(
+                    {"pred_action": real_actions[i][0].item()}
+                )
+                if not real_dones[i]:
+                    continue
+                real_observations[i] = real_env.reset()[i]
+                pbar.update()
+                # real_rnn_states = torch.zeros(
+                #     real_env.num_envs,
+                #     self.policy.net.num_recurrent_layers,
+                #     self.policy.net.hidden_size,
+                #     device=self.device,
+                # )
+                real_prev_actions = torch.zeros(
+                    real_env.num_envs, 1, device=self.device, dtype=torch.long
+                )
+                # real_not_done_masks = torch.zeros(
+                #     real_env.num_envs, 1, dtype=torch.uint8, device=self.device
+                # )
+
+            real_observations = extract_instruction_tokens(
+                real_observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
+            )
+            real_batch = batch_obs(real_observations, self.device)
+            real_batch = apply_obs_transforms_batch(real_batch, self.obs_transforms)
+        envs.close()
+        real_env.finish(real_episode_predictions)
+        if config.use_pbar:
+            pbar.close()
+
     def _eval_checkpoint(
         self,
         checkpoint_path: str,
@@ -440,7 +546,7 @@ class RealTrainer(BaseVLNCETrainer):
             #     return
 
         envs = construct_envs_auto_reset_false(config, get_env_class(config.ENV_NAME))
-        real_env = RealEnv(config)
+        real_env = RealEnv(config, train_num=TRAIN_NUM, train_iter=TRAIN_ITER)
 
         observation_space, action_space = self._get_spaces(config, envs=envs)
 
@@ -452,13 +558,6 @@ class RealTrainer(BaseVLNCETrainer):
         )
         self.policy.eval()
         self.policy.net.eval()
-
-        observations = envs.reset()
-        observations = extract_instruction_tokens(
-            observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
-        )
-        batch = batch_obs(observations, self.device)
-        batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
         real_episode_predictions = defaultdict(list)
         real_observations = real_env.reset()
@@ -480,59 +579,31 @@ class RealTrainer(BaseVLNCETrainer):
             real_env.num_envs, 1, dtype=torch.uint8, device=self.device
         )
 
-        rnn_states = torch.zeros(
-            envs.num_envs,
-            self.policy.net.num_recurrent_layers,
-            self.policy.net.hidden_size,
-            device=self.device,
-        )
-        prev_actions = torch.zeros(
-            envs.num_envs, 1, device=self.device, dtype=torch.long
-        )
-        not_done_masks = torch.zeros(
-            envs.num_envs, 1, dtype=torch.uint8, device=self.device
-        )
 
         stats_episodes = {}
 
-        rgb_frames = [[] for _ in range(envs.num_envs)]
-
-        num_eps = sum(envs.number_of_episodes)
+        num_eps = sum(real_env.count_episodes())
         if config.EVAL.EPISODE_COUNT > -1:
             num_eps = min(config.EVAL.EPISODE_COUNT, num_eps)
 
         pbar = tqdm.tqdm(total=num_eps) if config.use_pbar else None
-        log_str = (
-            f"[Ckpt: {checkpoint_index}]"
-            " [Episodes evaluated: {evaluated}/{total}]"
-            " [Time elapsed (s): {time}]"
-        )
-        start_time = time.time()
+        
 
-        while envs.num_envs > 0 and len(stats_episodes) < num_eps and real_env.num_envs>0:
-            current_episodes = envs.current_episodes()
+        while len(stats_episodes) < num_eps and real_env.num_envs>0:
+            
 
             with torch.no_grad():
-                actions, rnn_states = self.policy.act(
-                    batch,
-                    rnn_states,
-                    prev_actions,
-                    not_done_masks,
-                    deterministic=not config.EVAL.SAMPLE,
-                )
-                prev_actions.copy_(actions)
+                
 
                 real_actions, real_rnn_states = self.policy.act(
                     real_batch,
                     real_rnn_states,
                     real_prev_actions,
                     real_not_done_masks,
-                    deterministic=not config.EVAL.SAMPLE,
+                    deterministic=False,
                 )
-                real_prev_actions.copy_(real_actions)
-
-            outputs = envs.step([a[0].item() for a in actions])
-            observations, _, dones, infos = [list(x) for x in zip(*outputs)]
+                # tmp = real_env.get_prev_action().to(self.device)
+                real_prev_actions.copy_(real_actions) 
 
             real_observations, _, real_dones, real_infos = real_env.step()
             real_not_done_masks = torch.tensor(
@@ -541,45 +612,14 @@ class RealTrainer(BaseVLNCETrainer):
                 device=self.device,
             )
 
-            not_done_masks = torch.tensor(
-                [[0] if done else [1] for done in dones],
-                dtype=torch.uint8,
-                device=self.device,
-            )
-
-            # reset envs and observations if necessary
-            for i in range(envs.num_envs):
-                if not dones[i]:
-                    continue
-
-                ep_id = current_episodes[i].episode_id
-                stats_episodes[ep_id] = infos[i]
-                observations[i] = envs.reset_at(i)[0]
-                prev_actions[i] = torch.zeros(1, dtype=torch.long)
-                aggregated_stats = {}
-                num_episodes = len(stats_episodes)
-                for k in next(iter(stats_episodes.values())).keys():
-                    aggregated_stats[k] = (
-                        sum(v[k] for v in stats_episodes.values()) / num_episodes
-                    )
-                print(aggregated_stats)
-                if config.use_pbar:
-                    pbar.update()
-                else:
-                    logger.info(
-                        log_str.format(
-                            evaluated=len(stats_episodes),
-                            total=num_eps,
-                            time=round(time.time() - start_time),
-                        )
-                    )
             real_current_episodes = real_env.current_episodes()
             for i in range(real_env.num_envs):
                 real_episode_predictions[real_current_episodes[i].episode_id].append(
-                    {"pred_action": actions[i][0].item()}
+                    {"pred_action": real_actions[i][0].item()}
                 )
                 if not real_dones[i]:
                     continue
+                pbar.update()
                 real_observations[i] = real_env.reset()[i]
                 # real_rnn_states = torch.zeros(
                 #     real_env.num_envs,
@@ -596,12 +636,6 @@ class RealTrainer(BaseVLNCETrainer):
 
 
 
-            observations = extract_instruction_tokens(
-                observations,
-                self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
-            )
-            batch = batch_obs(observations, self.device)
-            batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
 
             real_observations = extract_instruction_tokens(
@@ -610,182 +644,25 @@ class RealTrainer(BaseVLNCETrainer):
             real_batch = batch_obs(real_observations, self.device)
             real_batch = apply_obs_transforms_batch(real_batch, self.obs_transforms)
 
-            envs_to_pause = []
-            next_episodes = envs.current_episodes()
-
-            for i in range(envs.num_envs):
-                if next_episodes[i].episode_id in stats_episodes:
-                    envs_to_pause.append(i)
-
-            (
-                envs,
-                rnn_states,
-                not_done_masks,
-                prev_actions,
-                batch,
-                rgb_frames,
-            ) = self._pause_envs(
-                envs_to_pause,
-                envs,
-                rnn_states,
-                not_done_masks,
-                prev_actions,
-                batch,
-                rgb_frames,
-            )
 
         envs.close()
         real_env.finish(real_episode_predictions)
         if config.use_pbar:
             pbar.close()
 
-        aggregated_stats = {}
-        num_episodes = len(stats_episodes)
-        for k in next(iter(stats_episodes.values())).keys():
-            aggregated_stats[k] = (
-                sum(v[k] for v in stats_episodes.values()) / num_episodes
-            )
-
-        if config.EVAL.SAVE_RESULTS:
-            with open(fname, "w") as f:
-                json.dump(aggregated_stats, f, indent=4)
-
-        logger.info(f"Episodes evaluated: {num_episodes}")
-        checkpoint_num = checkpoint_index + 1
-        for k, v in aggregated_stats.items():
-            logger.info(f"{k}: {v:.6f}")
-            writer.add_scalar(f"eval_{split}_{k}", v, checkpoint_num)
-    def inference(self) -> None:
-        """Runs inference on a checkpoint and saves a predictions file."""
-
-        checkpoint_path = self.config.INFERENCE.CKPT_PATH
-        logger.info(f"checkpoint_path: {checkpoint_path}")
-
-        if self.config.INFERENCE.USE_CKPT_CONFIG:
-            config = self._setup_eval_config(
-                self.load_checkpoint(checkpoint_path, map_location="cpu")[
-                    "config"
-                ]
-            )
-        else:
-            config = self.config.clone()
-
-        config.defrost()
-        config.TASK_CONFIG.DATASET.SPLIT = self.config.INFERENCE.SPLIT
-        config.TASK_CONFIG.DATASET.ROLES = ["guide"]
-        config.TASK_CONFIG.DATASET.LANGUAGES = config.INFERENCE.LANGUAGES
-        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = False
-        config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = (
-            -1
-        )
-        config.IL.ckpt_to_load = config.INFERENCE.CKPT_PATH
-        config.TASK_CONFIG.TASK.MEASUREMENTS = []
-        config.TASK_CONFIG.TASK.SENSORS = [
-            s for s in config.TASK_CONFIG.TASK.SENSORS if "INSTRUCTION" in s
-        ]
-        config.ENV_NAME = "VLNCEInferenceEnv"
-        config.freeze()
-
-        envs = construct_envs_auto_reset_false(
-            config, get_env_class(config.ENV_NAME)
-        )
-        real_env = RealEnv(config)
-
-        observation_space, action_space = self._get_spaces(config, envs=envs)
-
-        self._initialize_policy(
-            config,
-            load_from_ckpt=True,
-            observation_space=observation_space,
-            action_space=action_space,
-        )
-        self.policy.eval()
-        self.policy.net.eval()
-
-        # observations = envs.reset()
-        observations = real_env.reset()
-        observations = extract_instruction_tokens(
-            observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
-        )
-        batch = batch_obs(observations, self.device)
-        batch = apply_obs_transforms_batch(batch, self.obs_transforms)
-
-        rnn_states = torch.zeros(
-            envs.num_envs,
-            self.policy.net.num_recurrent_layers,
-            self.policy.net.hidden_size,
-            device=self.device,
-        )
-        prev_actions = torch.zeros(
-            envs.num_envs, 1, device=self.device, dtype=torch.long
-        )
-        not_done_masks = torch.zeros(
-            envs.num_envs, 1, dtype=torch.uint8, device=self.device
-        )
-
-        episode_predictions = defaultdict(list)
-
-        # episode ID --> instruction ID for rxr predictions format
-        instruction_ids: Dict[str, int] = {}
-
-        # populate episode_predictions with the starting state
-        # current_episodes = envs.current_episodes()
-        # for i in range(envs.num_envs):
-        #     episode_predictions[current_episodes[i].episode_id].append(
-        #         envs.call_at(i, "get_info", {"observations": {}})
+        # aggregated_stats = {}
+        # num_episodes = len(stats_episodes)
+        # for k in next(iter(stats_episodes.values())).keys():
+        #     aggregated_stats[k] = (
+        #         sum(v[k] for v in stats_episodes.values()) / num_episodes
         #     )
-        current_episodes = real_env.current_episodes()
 
-        with tqdm.tqdm(
-            total=sum(real_env.count_episodes()),
-            desc=f"[inference:{self.config.INFERENCE.SPLIT}]",
-        ) as pbar:
-            while real_env.num_envs > 0:
-                current_episodes = real_env.current_episodes()
-                
-                # current_episodes = real_env.current_episodes()
-                with torch.no_grad():
-                    actions, rnn_states = self.policy.act(
-                        batch,
-                        rnn_states,
-                        prev_actions,
-                        not_done_masks,
-                        deterministic=not config.INFERENCE.SAMPLE,
-                    )
-                    prev_actions.copy_(actions)
-                for i in range(real_env.num_envs):
-                    episode_predictions[current_episodes[i].episode_id].append(
-                        {"pred_action": actions[i][0].item()}
-                    )
-                observations, _, dones, infos = real_env.step()
-                not_done_masks = torch.tensor(
-                    [[0] if done else [1] for done in dones],
-                    dtype=torch.uint8,
-                    device=self.device,
-                )
+        # if config.EVAL.SAVE_RESULTS:
+        #     with open(fname, "w") as f:
+        #         json.dump(aggregated_stats, f, indent=4)
 
-                # reset envs and observations if necessary
-                for i in range(real_env.num_envs):
-                    if not dones[i]:
-                        continue
-                    observations[i] = real_env.reset()[i]
-                    prev_actions[i] = torch.zeros(1, dtype=torch.long)
-                    pbar.update()
-
-                observations = extract_instruction_tokens(
-                    observations,
-                    self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
-                )
-                batch = batch_obs(observations, self.device)
-                batch = apply_obs_transforms_batch(batch, self.obs_transforms)
-
-
-        envs.close()
-        real_env.finish(episode_predictions)
-
-        with open(config.INFERENCE.PREDICTIONS_FILE, "w") as f:
-            json.dump(episode_predictions, f, indent=2)
-
-        logger.info(
-            f"Predictions saved to: {config.INFERENCE.PREDICTIONS_FILE}"
-        )
+        # logger.info(f"Episodes evaluated: {num_episodes}")
+        # checkpoint_num = checkpoint_index + 1
+        # for k, v in aggregated_stats.items():
+        #     logger.info(f"{k}: {v:.6f}")
+        #     writer.add_scalar(f"eval_{split}_{k}", v, checkpoint_num)
