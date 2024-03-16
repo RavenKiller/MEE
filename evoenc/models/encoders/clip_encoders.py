@@ -21,7 +21,7 @@ class CLIPEncoder(nn.Module):
         rgb_level: int = -1,
     ) -> None:
         super().__init__()
-        self.model, self.preprocessor = clip.load(model_name)
+        self.model, self.preprocessor = clip.load(model_name, device="cpu")
         for param in self.model.parameters():
             param.requires_grad_(trainable)
         self.normalize_visual_inputs = True
@@ -282,7 +282,7 @@ class VlnResnetDepthEncoder(nn.Module):
             param.requires_grad_(trainable)
         self.depth_seq_features = None
         if checkpoint != "NONE":
-            ddppo_weights = torch.load(checkpoint)
+            ddppo_weights = torch.load(checkpoint, map_location="cpu")
 
             weights_dict = {}
             for k, v in ddppo_weights["state_dict"].items():
