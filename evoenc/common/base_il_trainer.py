@@ -318,9 +318,9 @@ class BaseVLNCETrainer(BaseILTrainer):
                 config.RESULTS_DIR,
                 f"stats_ckpt_{checkpoint_index}_{split}.json",
             )
-            if os.path.exists(fname):
-                logger.info("skipping -- evaluation exists.")
-                return
+            # if os.path.exists(fname):
+            #     logger.info("skipping -- evaluation exists.")
+            #     return
 
         envs = construct_envs_auto_reset_false(
             config, get_env_class(config.ENV_NAME)

@@ -2,34 +2,30 @@ BASE_TASK_CONFIG_PATH: habitat_extensions/config/vlnce_t.yaml
 TRAINER_NAME: dagger_evoenc # dagger, or recollect_trainer
 DEBUG: False
 SIMULATOR_GPU_ID: 0 # new version
+SIMULATOR_GPU_IDS: [0]
 TORCH_GPU_ID: 0
 NUM_ENVIRONMENTS: 8
-TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p2_tune
-CHECKPOINT_FOLDER: data/checkpoints/evoenc_p2_tune
-EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.37.pth
-RESULTS_DIR: data/checkpoints/evoenc_p2_tune/evals
+TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p2_tune0
+CHECKPOINT_FOLDER: data/checkpoints/evoenc_p2_tune0
+EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p2_tune0
+RESULTS_DIR: data/checkpoints/evoenc_p2_tune0/evals
 
 EVAL:
   USE_CKPT_CONFIG: False
-  SPLIT: val_seen
+  SPLIT: val_unseen
   EPISODE_COUNT: -1
-
-INFERENCE:
-  CKPT_PATH: data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.37.pth
-  SPLIT: val_seen
-  FORMAT: r2r
 
 IL:
   epochs: 4
-  batch_size: 2
-  lr: 1.0e-4
+  batch_size: 1
+  lr: 1.0e-5
   use_iw: True
   RECOLLECT_TRAINER:
     gt_file:
       data/datasets/R2R_VLNCE_NRSub_T/{split}/{split}_gt.json.gz
   load_from_ckpt: True
   load_from_pretrain: False
-  ckpt_to_load: data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.37.pth
+  ckpt_to_load: /root/EvoEnc/data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.32.pth
   
   DAGGER:
     iterations: 10

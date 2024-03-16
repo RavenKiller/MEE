@@ -390,7 +390,15 @@ class EENet(Net):
         sub_instruction_embedding = self.sub_fc(sub_instruction_embedding)
         rgb_embedding_seq = self.rgb_fc(rgb_embedding_seq)
         depth_embedding_seq = self.depth_fc(depth_embedding_seq)
-        
+        if self.config.MODEL.ablate_rgb:
+            rgb_embedding_seq.fill_(0)
+        if self.config.MODEL.ablate_depth:
+            depth_embedding_seq.fill_(0)
+        if self.config.MODEL.ablate_instruction:
+            instruction_embedding.fill_(0)
+        if self.config.MODEL.ablate_sub_instruction:
+            sub_instruction_embedding.fill_(0)
+
         ## Construct input sequence
         # Token
         token_embeddings = self.token_embedding.expand((rgb_embedding.shape[0],-1,-1)).clone()
@@ -450,6 +458,10 @@ class EENet(Net):
         attn_mask = attn_mask.reshape((-1, self.total_len, self.total_len))
         self.attn_mask = attn_mask
 
+        # rgb_idx = 0
+        # depth_idx = self.rgb_len+1
+        # inst_idx = self.rgb_len+self.depth_len+2
+        # sub_idx = self.rgb_len+self.depth_len+self.instruction_len+3
         # Transformer blocks
         seq_out = self._t_forward(seq_embedding, attn_mask)
 

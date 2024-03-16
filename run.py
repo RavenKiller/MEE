@@ -61,7 +61,6 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     logger.add_filehandler(config.LOG_FILE%(datetime.now().strftime("%Y%m%d-%H%M%S")))
 
     seed =  config.TASK_CONFIG.SEED
-    random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.backends.cudnn.benchmark = False
