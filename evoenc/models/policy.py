@@ -31,9 +31,7 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
         masks,
         deterministic=False,
     ):
-        features, rnn_states = self.net(
-            observations, rnn_states, prev_actions, masks
-        )
+        features, rnn_states = self.net(observations, rnn_states, prev_actions, masks)
         distribution = self.action_distribution(features)
 
         if deterministic:
@@ -52,7 +50,5 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
     def build_distribution(
         self, observations, rnn_states, prev_actions, masks
     ) -> CustomFixedCategorical:
-        features, rnn_states = self.net(
-            observations, rnn_states, prev_actions, masks
-        )
+        features, rnn_states = self.net(observations, rnn_states, prev_actions, masks)
         return self.action_distribution(features)

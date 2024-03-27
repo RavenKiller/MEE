@@ -6,18 +6,13 @@ TORCH_GPU_ID: 0
 NUM_ENVIRONMENTS: 8
 TENSORBOARD_DIR: data/tensorboard_dirs/evoenc_p2_tune
 CHECKPOINT_FOLDER: data/checkpoints/evoenc_p2_tune
-EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.37.pth
+EVAL_CKPT_PATH_DIR: data/checkpoints/evoenc_p2_tune
 RESULTS_DIR: data/checkpoints/evoenc_p2_tune/evals
 
 EVAL:
   USE_CKPT_CONFIG: False
-  SPLIT: val_seen
+  SPLIT: val_unseen
   EPISODE_COUNT: -1
-
-INFERENCE:
-  CKPT_PATH: data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.37.pth
-  SPLIT: val_seen
-  FORMAT: r2r
 
 IL:
   epochs: 4
@@ -28,8 +23,8 @@ IL:
     gt_file:
       data/datasets/R2R_VLNCE_NRSub_T/{split}/{split}_gt.json.gz
   load_from_ckpt: True
-  load_from_pretrain: False
-  ckpt_to_load: data/checkpoints/evoenc_p2_tune/ckpt.EEPolicy.37.pth
+  load_from_pretrain: True
+  ckpt_to_load: data/checkpoints/evoenc_p2/ckpt.EEPolicy.4.pth
   
   DAGGER:
     iterations: 10
@@ -41,18 +36,13 @@ IL:
 MODEL:
   policy_name: EEPolicy
 
-  INSTRUCTION_ENCODER:
-    bidirectional: True
   PROGRESS_MONITOR:
     use: True
     alpha: 1.0
-  PEAK_ATTENTION:
-    use: True
-    alpha: 0.4
-    sigma: 0.6
   DEPTH_ENCODER:
     output_size: 2048 
     single_size: 128
+    trainable: False
   EVOENC:
     rgb_len: 50
     layers: 4

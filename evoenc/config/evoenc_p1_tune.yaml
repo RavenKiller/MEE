@@ -17,7 +17,7 @@ EVAL:
 IL:
   epochs: 4
   batch_size: 2
-  lr: 2.5e-5
+  lr: 1.0e-4
   use_iw: True
   RECOLLECT_TRAINER:
     gt_file:

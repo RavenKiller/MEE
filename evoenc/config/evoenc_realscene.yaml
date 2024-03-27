@@ -13,10 +13,9 @@ PRETRAIN:
   stage: REALSCENE
   excludes: ["clip_encoder","depth_encoder"]
   # ,"rgb_reconstruction","depth_reconstruction","inst_reconstruction","sub_reconstruction","mean_rgb_reconstruction","mean_depth_reconstruction","mean_inst_reconstruction","mean_sub_reconstruction","inner_alignment","outer_alignment"
-  STAGE2:
-    lr: 2.0e-5
+  STAGE3:
+    lr: 1.0e-5
     batch_size: 64
-    loss_weights: [0.34, 0.4, 0.6, 1.0]
     load_from_ckpt: True
     ckpt_to_load: data/checkpoints/evoenc_p2/s3.pth
     epochs: 3

@@ -28,6 +28,7 @@ PAD_LEN = 25
 PAD_SEQ = [0] * PAD_LEN
 MAX_SUB = 10
 
+
 def extract_instruction_tokens(
     observations: List[Dict],
     instruction_sensor_uuid: str,
@@ -49,12 +50,12 @@ def extract_instruction_tokens(
             isinstance(observations[i][instruction_sensor_uuid], dict)
             and tokens_uuid in observations[i][instruction_sensor_uuid]
         ):
-            observations[i][instruction_sensor_uuid] = np.array(observations[i][
-                instruction_sensor_uuid
-            ][tokens_uuid])
-            observations[i][sub_instruction_sensor_uuid] = np.array(observations[i][
-                sub_instruction_sensor_uuid
-            ][tokens_uuid])
+            observations[i][instruction_sensor_uuid] = np.array(
+                observations[i][instruction_sensor_uuid][tokens_uuid]
+            )
+            observations[i][sub_instruction_sensor_uuid] = np.array(
+                observations[i][sub_instruction_sensor_uuid][tokens_uuid]
+            )
         # else:
         #     break
     return observations
@@ -71,6 +72,8 @@ def single_frame_box_shape(box: spaces.Box) -> spaces.Box:
         shape=box.shape[1:],
         dtype=box.high.dtype,
     )
+
+
 # My cumstomized batch_obs() function
 @torch.no_grad()
 @profiling_wrapper.RangeContext("batch_obs")

@@ -43,9 +43,7 @@ class GoTowardPoint(TeleportAction):
                 new_rot, _ = compute_heading_to(agent_pos, pos)
         else:
             new_pos = np.array(self._sim.pathfinder.snap_point(new_pos))
-            if np.any(np.isnan(new_pos)) or not self._sim.is_navigable(
-                new_pos
-            ):
+            if np.any(np.isnan(new_pos)) or not self._sim.is_navigable(new_pos):
                 new_pos = agent_pos
             if self._rotate_agent:
                 new_rot, _ = compute_heading_to(agent_pos, pos)
@@ -62,7 +60,7 @@ class GoTowardPoint(TeleportAction):
             {
                 "r": spaces.Box(
                     low=np.array([0.0]),
-                    high=np.array([np.sqrt(2 * (coord_range ** 2))]),
+                    high=np.array([np.sqrt(2 * (coord_range**2))]),
                     dtype=float,
                 ),
                 "theta": spaces.Box(
