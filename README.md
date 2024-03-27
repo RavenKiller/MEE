@@ -68,6 +68,8 @@ Collecting and loading scripts are developed in the dev branch.
 Additional data sources:
 [ImageNet](https://www.image-net.org/), [LAION-HighResolution](https://huggingface.co/datasets/laion/laion-high-resolution), [CC-12M](https://github.com/google-research-datasets/conceptual-12m), [C4](https://www.tensorflow.org/datasets/catalog/c4), [HM3D](https://aihabitat.org/datasets/hm3d/), [SUN3D](https://sun3d.cs.princeton.edu/), [ScanNet](http://www.scan-net.org/), [Marky-gibson](https://github.com/google-research-datasets/RxR/blob/main/marky-mT5/README.md).
 
+Access of several datasets are subject to specific terms and conditions (e.g., HM3D). Please request the access before using them.
+
 ## Train, evaluate and test
 `run.py` is the program entrance. You can run it like this:
 ```bash
