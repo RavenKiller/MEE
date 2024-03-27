@@ -1,6 +1,5 @@
 # Multimodal Evolutionary Encoder for Continuous Vision-Language Navigation
 
-
 ## Setup
 1. Use [anaconda](https://anaconda.org/) to create a Python 3.8 environment:
 ```bash
@@ -42,7 +41,7 @@ pip install -r requirements.txt
 We proposed an evolutionary pre-training strategy in this work and developed the corresponding datasets. The data collecting scripts are stored in `scripts/` with filenames like `evo_data_stage1.ipynb`.
 
 ### V1
-The [v1 version](https://pan.baidu.com/s/1XnE03NaACv8JQzHdF9_1Eg) (access code: evop) contains a total of 4.8M samples of all modalities. All data is organized in HDF5 format. The total size after decompression is around 720 GB. Below is the file list:
+The [v1 version](https://pan.baidu.com/s/1smZFxuhxsPaF6dSjI0QHUw) (default access code: `evop`) contains a total of 4.8M samples of all modalities. All data is organized in HDF5 format. The total size after decompression is around 720 GB. Below is the file list:
 + stage1.zip
     + rgb.mat: contains RGB data with shape (395439, 224, 224, 3)
     + depth.mat: contains depth data with shape (417900, 256, 256, 1)
@@ -62,7 +61,7 @@ The data source includes:
 + stage 3: [VLN-CE](https://github.com/jacobkrantz/VLN-CE) and [EnvDrop](https://github.com/airsplay/R2R-EnvDrop).
 
 ### V2
-The [v2 version](https://pan.baidu.com/s/14RmyVNhOjpKJz2IFqU_gQg) (access code: evop) contains a total of 83.9M samples of all modalities, which is a superset of v1.
+The [v2 version](https://pan.baidu.com/s/14RmyVNhOjpKJz2IFqU_gQg) contains a total of 83.9M samples of all modalities, which is a superset of v1.
 All data are stored in seperated files (RGB: JPEG, Depth: PNG, Instruction: TXT, Sub-instruction: TXT). 
 Collecting and loading scripts are developed in the dev branch.
 
@@ -90,21 +89,36 @@ Our config files are stored in `evoenc/config/`:
 Several paths (like pre-training data folder and checkpoint paths) are configured by the above YAML files or the `evoenc/config/default.py`. Remember to change them as needed.
 
 ## Pre-trained weights
-\[[stage 1](https://www.jianguoyun.com/p/DQDYoIIQhY--CRiy0_oEIAA)\] \[[stage 2](https://www.jianguoyun.com/p/DYfUQDQQhY--CRi80_oEIAA)\] \[[stage 3](https://www.jianguoyun.com/p/DfU_ZLgQhY--CRjB0_oEIAA)\] <br/> Access code: `evoenc`
+\[[stage 1](https://www.jianguoyun.com/p/DQDYoIIQhY--CRiy0_oEIAA)\] \[[stage 2](https://www.jianguoyun.com/p/DYfUQDQQhY--CRi80_oEIAA)\] \[[stage 3](https://www.jianguoyun.com/p/DfU_ZLgQhY--CRjB0_oEIAA)\]
 
-We release pre-trained Enc weights after Evo. We exclude the frozen pre-extractor in these weights to reduce the storage cost. Refer to the code `evoenc/models/evoenc_policy.py` to load pre-trained weights.
+We release pre-trained encoder weights after evolutionary pre-training. We exclude the frozen pre-extractor in these weights to reduce the storage cost. Refer to the code `evoenc/models/evoenc_policy.py` to load pre-trained weights.
 
 ## Visualization
 ### Unified feature spaces
-![](resources/unified.png)
+![unified](https://github.com/RavenKiller/MEE/assets/41775391/d26de2a4-d687-45eb-b2e9-3b22b68a929d)
+
 
 
 ### Evolved encoder performance
-![](resources/evolved.png)
+![evolved](https://github.com/RavenKiller/MEE/assets/41775391/1364edc2-c561-4e09-9241-f0d306be8652)
+
+
 
 
 ### Comparison with the baseline:
 
+
+https://github.com/RavenKiller/MEE/assets/41775391/a82a43fb-a2cc-45b4-80c1-d2181383e9ce
+
+
+
+
+
 ### Failure cases:
 
 ### Real scenes
+
+Currently, we release [13 paths](https://www.jianguoyun.com/p/DcB0_TwQlY_kBxivhrsFIAA) with VLN-CE format.
+
+https://github.com/RavenKiller/MEE/assets/41775391/ca7c4d98-4d8b-4df0-8f76-ac4c71ffba4b
+
