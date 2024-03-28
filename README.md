@@ -116,7 +116,30 @@ https://github.com/RavenKiller/MEE/assets/41775391/a82a43fb-a2cc-45b4-80c1-d2181
 
 
 
-### Failure cases:
+### Failure cases
+
+Premature stop
+
+
+https://github.com/RavenKiller/MEE/assets/41775391/d44df089-c92e-4094-aee6-259041afb9f4
+
+
+
+Wrong exploration
+
+
+https://github.com/RavenKiller/MEE/assets/41775391/a067abd2-73d4-4e10-a39f-8bc8aaddb0a5
+
+
+
+Deadlock
+
+
+https://github.com/RavenKiller/MEE/assets/41775391/8cbd4441-720e-4e91-9095-291b28628517
+
+
+
+
 
 ### Real scenes
 
