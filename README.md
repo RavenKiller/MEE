@@ -1,4 +1,5 @@
 # Multimodal Evolutionary Encoder for Continuous Vision-Language Navigation
+\[[Project page](https://ravenkiller.github.io/MEE-Project/)\]
 
 ## Setup
 1. Use [anaconda](https://anaconda.org/) to create a Python 3.8 environment:
