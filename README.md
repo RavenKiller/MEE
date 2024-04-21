@@ -97,12 +97,11 @@ We release pre-trained encoder weights after evolutionary pre-training. We exclu
 
 ## Visualization
 ### Unified feature spaces
-![unified](https://github.com/RavenKiller/MEE/assets/41775391/d26de2a4-d687-45eb-b2e9-3b22b68a929d)
-
+<img src="https://github.com/RavenKiller/MEE/assets/41775391/d26de2a4-d687-45eb-b2e9-3b22b68a929d" alt="unified" width="600">
 
 
 ### Evolved encoder performance
-![evolved](https://github.com/RavenKiller/MEE/assets/41775391/1364edc2-c561-4e09-9241-f0d306be8652)
+<img src="https://github.com/RavenKiller/MEE/assets/41775391/1364edc2-c561-4e09-9241-f0d306be8652" alt="unified" width="600">
 
 
 
@@ -116,11 +115,52 @@ https://github.com/RavenKiller/MEE/assets/41775391/a82a43fb-a2cc-45b4-80c1-d2181
 
 
 
-### Failure cases:
+### Failure cases
 
-### Real scenes
+Premature stop
 
-Currently, we release [13 paths](https://www.jianguoyun.com/p/DcB0_TwQlY_kBxivhrsFIAA) with VLN-CE format.
 
-https://github.com/RavenKiller/MEE/assets/41775391/ca7c4d98-4d8b-4df0-8f76-ac4c71ffba4b
+https://github.com/RavenKiller/MEE/assets/41775391/d44df089-c92e-4094-aee6-259041afb9f4
+
+
+
+Wrong exploration
+
+
+https://github.com/RavenKiller/MEE/assets/41775391/a067abd2-73d4-4e10-a39f-8bc8aaddb0a5
+
+
+
+Deadlock
+
+
+https://github.com/RavenKiller/MEE/assets/41775391/8cbd4441-720e-4e91-9095-291b28628517
+
+
+
+
+
+## Real scene navigation
+
+### Alkaid Robot
+<img src="https://github.com/RavenKiller/MEE/assets/41775391/8cc26483-1e67-49b7-8ad6-8f137809d3a3" alt="unified" width="400">
+
+
+Alkaid is a self-developed interactive service robot. Here are some parameters:
+
++ Camera: 720P resolution, 90° max FOV
++ Screen: 1080P, touch screen
++ Microphone: 4-microphone circular array, 61dB SNR
++ Speaker: 2 stereo units, 150Hz-20kHz output
++ Chassis: 2-wheel differential drive, 0.5m/s max speed, 1.2rad/s max angular speed
+
+### Demonstration
+
+Currently, we release [13 paths](https://www.jianguoyun.com/p/DcB0_TwQlY_kBxivhrsFIAA) with VLN-CE format. The video below demonstrates 4 paths.
+
+
+
+https://github.com/RavenKiller/MEE/assets/41775391/cda47ac0-bd28-48a3-b498-a3990ec81f61
+
+
 
