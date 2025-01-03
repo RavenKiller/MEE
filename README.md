@@ -1,5 +1,18 @@
-# Multimodal Evolutionary Encoder for Continuous Vision-Language Navigation
-\[[Project page](https://ravenkiller.github.io/MEE-Project/)\]
+<div align="center">
+
+<h1>Multimodal Evolutionary Encoder for Continuous Vision-Language Navigation</h1>
+
+<div>
+    <a href='https://ieeexplore.ieee.org/document/10802484' target='_blank'>[Paper (IROS2024)]</a>
+    <a href='https://ravenkiller.github.io/MEE-Project/' target='_blank'>[Project page]</a>
+</div>
+</div>
+
+<br />
+<div align="center">
+    <img src="https://github.com/user-attachments/assets/2bf671d1-5a01-4c00-9537-efb69410c15d", width="1000", alt="TAC pre-training">
+</div>
+<br />
 
 ## Setup
 1. Use [anaconda](https://anaconda.org/) to create a Python 3.8 environment:
@@ -163,5 +176,18 @@ Currently, we release [13 paths](https://www.jianguoyun.com/p/DcB0_TwQlY_kBxivhr
 
 https://github.com/RavenKiller/MEE/assets/41775391/cda47ac0-bd28-48a3-b498-a3990ec81f61
 
+## Citation
+```
+@INPROCEEDINGS{10802484,
+  author={He, Zongtao and Wang, Liuyi and Chen, Lu and Li, Shu and Yan, Qingqing and Liu, Chengju and Chen, Qijun},
+  booktitle={2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}, 
+  title={Multimodal Evolutionary Encoder for Continuous Vision-Language Navigation}, 
+  year={2024},
+  volume={},
+  number={},
+  pages={1443-1450},
+  keywords={Visualization;Costs;Codes;Navigation;Service robots;Linguistics;Feature extraction;Solids;Decoding;Intelligent robots},
+  doi={10.1109/IROS58592.2024.10802484}}
 
+```
 
